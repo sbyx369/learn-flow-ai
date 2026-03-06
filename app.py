@@ -317,155 +317,103 @@ def run_gen(fmt, content, manual, difficulty, persona, creativity, save_as="outp
 
 # ── SETUP SCREEN ──
 def show_setup():
-    # Force full page background to match theme
+    # Force page background + hide sidebar
     st.markdown(f"""
-    <style>
-    html, body, [data-testid="stApp"],
-    [data-testid="stAppViewContainer"],
-    [data-testid="stAppViewContainer"] > .main,
-    .block-container {{
-        background-color: {BG} !important;
-        background: {BG} !important;
-    }}
-    /* Hide sidebar on setup screen */
-    [data-testid="stSidebar"] {{ display: none !important; }}
-    </style>
-    """, unsafe_allow_html=True)
+<style>
+html,body,[data-testid="stApp"],[data-testid="stAppViewContainer"] > .main,.block-container{{
+    background-color:{BG}!important;background:{BG}!important;
+}}
+[data-testid="stSidebar"]{{display:none!important;}}
+.setup-page{{max-width:560px;margin:0 auto;padding:2rem 1rem 4rem;}}
+.setup-logo-name{{font-family:'Plus Jakarta Sans',sans-serif;font-size:1.5rem;font-weight:800;
+    background:linear-gradient(135deg,{TEXT},{ACCENT},#a78bfa);
+    -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;}}
+.setup-logo-sub{{font-family:'Space Mono',monospace;font-size:0.6rem;color:{TEXT3};
+    letter-spacing:0.18em;text-transform:uppercase;margin-top:0.2rem;}}
+.setup-main-card{{background:{CARD};border:1px solid {BORDER};border-radius:22px;
+    padding:2.2rem 2.2rem 1.8rem;width:100%;margin-bottom:0;}}
+.setup-badge{{display:inline-block;background:rgba(59,130,246,0.1);
+    border:1px solid rgba(59,130,246,0.2);color:{ACCENT};
+    font-family:'Space Mono',monospace;font-size:0.62rem;letter-spacing:0.14em;
+    text-transform:uppercase;padding:0.3rem 0.9rem;border-radius:100px;}}
+.setup-card-title{{font-size:1.45rem;font-weight:800;
+    background:linear-gradient(135deg,{TEXT},{ACCENT},#a78bfa);
+    -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+    background-clip:text;margin:0.8rem 0 0.5rem;letter-spacing:-0.02em;}}
+.setup-card-sub{{font-size:0.87rem;color:{TEXT2};line-height:1.65;margin-bottom:1.6rem;}}
+.setup-steps{{display:grid;grid-template-columns:repeat(4,1fr);gap:0.55rem;margin-bottom:1.4rem;}}
+.setup-step{{background:{BG};border:1px solid {BORDER};border-radius:10px;
+    padding:0.75rem 0.4rem;text-align:center;}}
+.setup-step-n{{font-family:'Space Mono',monospace;font-size:0.95rem;font-weight:700;color:{ACCENT};}}
+.setup-step-t{{font-size:0.67rem;color:{TEXT2};margin-top:0.25rem;line-height:1.3;}}
+.setup-tip{{background:rgba(245,158,11,0.07);border-left:3px solid #f59e0b;
+    border-radius:0 8px 8px 0;padding:0.55rem 0.85rem;font-size:0.77rem;color:#fbbf24;}}
+.setup-cta{{display:inline-block;background:linear-gradient(135deg,{ACCENT},{ACCENT2});
+    color:#fff!important;font-family:'Plus Jakarta Sans',sans-serif;font-weight:700;
+    font-size:0.9rem;padding:0.8rem 2rem;border-radius:12px;text-decoration:none!important;
+    box-shadow:0 4px 20px rgba(59,130,246,0.3);}}
+.setup-hint{{font-size:0.72rem;color:{TEXT3};margin-top:0.5rem;}}
+.setup-privacy{{background:rgba(59,130,246,0.06);border:1px solid rgba(59,130,246,0.15);
+    border-radius:10px;padding:0.7rem 0.9rem;font-size:0.77rem;color:{TEXT3};margin-top:0.8rem;}}
+.setup-unlock-title{{font-size:0.76rem;font-weight:700;color:{TEXT2};margin:1.2rem 0 0.5rem;}}
+.setup-pills{{display:flex;flex-wrap:wrap;gap:0.35rem;}}
+.setup-pill{{background:{BG};border:1px solid {BORDER};border-radius:100px;
+    padding:0.22rem 0.7rem;font-size:0.7rem;color:{TEXT2};}}
+</style>
+""", unsafe_allow_html=True)
 
-    # Theme toggle top right
+    # Theme toggle
     _, tc = st.columns([10,1])
     with tc:
         if st.button("🌙" if not dark else "☀️", help="Toggle theme"):
             st.session_state.dark_mode = not dark
             st.rerun()
 
-    # Full page centered layout
-    st.markdown(f"""
-    <div style="
-        min-height:90vh;
-        display:flex;
-        flex-direction:column;
-        align-items:center;
-        justify-content:center;
-        padding:2rem 1rem;
-        background:{BG};
-    ">
-    <!-- Logo -->
-    <div style="text-align:center;margin-bottom:2rem;">
-        <div style="font-size:3rem;margin-bottom:0.5rem;">🧠</div>
-        <div style="font-family:'Plus Jakarta Sans',sans-serif;font-size:1.6rem;font-weight:800;
-            background:linear-gradient(135deg,{TEXT},{ACCENT},#818cf8);
-            -webkit-background-clip:text;-webkit-text-fill-color:transparent;
-            background-clip:text;">
-            LearnFlow <span>AI</span>
-        </div>
-        <div style="font-family:'Space Mono',monospace;font-size:0.6rem;color:{TEXT3};
-            letter-spacing:0.18em;margin-top:0.3rem;text-transform:uppercase;">
-            Study Companion
-        </div>
+    # Logo
+    st.markdown("""
+<div class="setup-page">
+<div style="text-align:center;margin-bottom:1.8rem;">
+    <div style="font-size:2.8rem;margin-bottom:0.4rem;">🧠</div>
+    <div class="setup-logo-name">LearnFlow AI</div>
+    <div class="setup-logo-sub">Study Companion</div>
+</div>
+<div class="setup-main-card">
+    <div style="text-align:center;">
+        <span class="setup-badge">✦ Free Setup — 2 Minutes</span>
     </div>
-
-    <!-- Card -->
-    <div style="
-        background:{CARD};
-        border:1px solid {BORDER};
-        border-radius:24px;
-        padding:2.5rem 2.5rem 2rem;
-        max-width:580px;
-        width:100%;
-        position:relative;
-        overflow:hidden;
-    ">
-        <!-- Glow -->
-        <div style="position:absolute;top:-100px;right:-100px;width:300px;height:300px;
-            background:radial-gradient(circle,rgba(59,130,246,0.08) 0%,transparent 70%);
-            pointer-events:none;"></div>
-
-        <!-- Badge -->
-        <div style="text-align:center;margin-bottom:1.2rem;">
-            <span style="background:rgba(59,130,246,0.1);border:1px solid rgba(59,130,246,0.2);
-                color:{ACCENT};font-family:'Space Mono',monospace;font-size:0.62rem;
-                letter-spacing:0.14em;text-transform:uppercase;padding:0.3rem 0.9rem;
-                border-radius:100px;">✦ Free Setup — 2 Minutes</span>
-        </div>
-
-        <!-- Title -->
-        <div style="text-align:center;font-size:1.5rem;font-weight:800;
-            background:linear-gradient(135deg,{TEXT},{ACCENT},#a78bfa);
-            -webkit-background-clip:text;-webkit-text-fill-color:transparent;
-            background-clip:text;margin-bottom:0.6rem;letter-spacing:-0.02em;">
-            Connect your free AI key
-        </div>
-        <div style="text-align:center;font-size:0.88rem;color:{TEXT2};margin-bottom:2rem;line-height:1.65;">
-            LearnFlow AI runs on Google Gemini — 100% free, no credit card needed.<br>
-            Get your key in 2 minutes and start learning instantly.
-        </div>
-
-        <!-- Steps -->
-        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:0.6rem;margin-bottom:1.5rem;">
-            <div style="background:{BG};border:1px solid {BORDER};border-radius:10px;padding:0.8rem 0.5rem;text-align:center;">
-                <div style="font-family:'Space Mono',monospace;font-size:1rem;font-weight:700;color:{ACCENT};">01</div>
-                <div style="font-size:0.68rem;color:{TEXT2};margin-top:0.3rem;line-height:1.3;">Open Google AI Studio</div>
-            </div>
-            <div style="background:{BG};border:1px solid {BORDER};border-radius:10px;padding:0.8rem 0.5rem;text-align:center;">
-                <div style="font-family:'Space Mono',monospace;font-size:1rem;font-weight:700;color:{ACCENT};">02</div>
-                <div style="font-size:0.68rem;color:{TEXT2};margin-top:0.3rem;line-height:1.3;">Sign in with Google</div>
-            </div>
-            <div style="background:{BG};border:1px solid {BORDER};border-radius:10px;padding:0.8rem 0.5rem;text-align:center;">
-                <div style="font-family:'Space Mono',monospace;font-size:1rem;font-weight:700;color:{ACCENT};">03</div>
-                <div style="font-size:0.68rem;color:{TEXT2};margin-top:0.3rem;line-height:1.3;">Click Create API Key</div>
-            </div>
-            <div style="background:{BG};border:1px solid {BORDER};border-radius:10px;padding:0.8rem 0.5rem;text-align:center;">
-                <div style="font-family:'Space Mono',monospace;font-size:1rem;font-weight:700;color:{ACCENT};">04</div>
-                <div style="font-size:0.68rem;color:{TEXT2};margin-top:0.3rem;line-height:1.3;">Paste below and go!</div>
-            </div>
-        </div>
-
-        <!-- Tip -->
-        <div style="background:rgba(245,158,11,0.08);border-left:3px solid #f59e0b;
-            border-radius:0 8px 8px 0;padding:0.6rem 0.9rem;font-size:0.78rem;
-            color:#fbbf24;margin-bottom:1.5rem;">
-            ⚡ Keys look like: <strong>AIzaSyAbc123...</strong> (39 characters)
-        </div>
-
-        <!-- CTA Button -->
-        <div style="text-align:center;margin-bottom:1rem;">
-            <a href="https://aistudio.google.com/app/apikey" target="_blank" style="
-                display:inline-block;
-                background:linear-gradient(135deg,{ACCENT},{ACCENT2});
-                color:#fff;font-family:'Plus Jakarta Sans',sans-serif;
-                font-weight:700;font-size:0.92rem;
-                padding:0.8rem 2rem;border-radius:12px;
-                text-decoration:none;
-                box-shadow:0 4px 20px rgba(59,130,246,0.3);
-                letter-spacing:0.01em;">
-                🔑 Get My Free API Key →
-            </a>
-        </div>
-        <div style="text-align:center;font-size:0.73rem;color:{TEXT3};margin-bottom:1.5rem;">
-            Opens Google AI Studio in a new tab
-        </div>
+    <div class="setup-card-title" style="text-align:center;">Connect your free AI key</div>
+    <div class="setup-card-sub" style="text-align:center;">
+        LearnFlow AI runs on Google Gemini — 100% free, no credit card needed.<br>
+        Get your key in 2 minutes and start learning instantly.
     </div>
+    <div class="setup-steps">
+        <div class="setup-step"><div class="setup-step-n">01</div><div class="setup-step-t">Open Google AI Studio</div></div>
+        <div class="setup-step"><div class="setup-step-n">02</div><div class="setup-step-t">Sign in with Google</div></div>
+        <div class="setup-step"><div class="setup-step-n">03</div><div class="setup-step-t">Click Create API Key</div></div>
+        <div class="setup-step"><div class="setup-step-n">04</div><div class="setup-step-t">Paste below and go!</div></div>
     </div>
-    """, unsafe_allow_html=True)
+    <div class="setup-tip">⚡ Keys look like: <strong>AIzaSyAbc123...</strong> (39 characters)</div>
+    <div style="text-align:center;margin:1.5rem 0 0.5rem;">
+        <a class="setup-cta" href="https://aistudio.google.com/app/apikey" target="_blank">🔑 Get My Free API Key →</a>
+        <div class="setup-hint">Opens Google AI Studio in a new tab</div>
+    </div>
+</div>
+</div>
+""", unsafe_allow_html=True)
 
-    # Input and button — centered
-    _, mc, _ = st.columns([1, 2, 1])
+    # Input + button
+    _, mc, _ = st.columns([1,2,1])
     with mc:
-        key_in = st.text_input(
-            "Paste your Gemini API key:",
-            type="password",
-            placeholder="AIzaSy...",
-            key="setup_key"
-        )
+        key_in = st.text_input("Paste your Gemini API key:", type="password",
+                               placeholder="AIzaSy...", key="setup_key")
         if st.button("🚀 Validate & Start Learning", type="primary", use_container_width=True):
             k = key_in.strip()
             if not k:
                 st.warning("⚠️ Paste your API key above first.")
             elif not k.startswith("AIza"):
-                st.warning("⚠️ Invalid — Gemini keys always start with **AIza**")
+                st.warning("⚠️ Invalid — Gemini keys always start with AIza")
             elif len(k) < 30:
-                st.warning("⚠️ Too short — copy the full key from Google AI Studio")
+                st.warning("⚠️ Too short — copy the full key")
             else:
                 with st.spinner("🔍 Validating with Google..."):
                     valid = validate_key(k)
@@ -478,30 +426,27 @@ def show_setup():
                 else:
                     st.error("❌ Google rejected this key. Check you copied it fully.")
 
-        st.markdown(f"""
-        <div style="background:rgba(59,130,246,0.06);border:1px solid rgba(59,130,246,0.15);
-            border-radius:10px;padding:0.7rem 0.9rem;font-size:0.78rem;
-            color:{TEXT3};margin-top:0.8rem;line-height:1.5;">
-            🔒 <strong style="color:{TEXT2};">Your privacy:</strong>
-            Key stored only in browser session memory.
-            Never sent to our servers. Auto-deleted when you close this tab.
-        </div>
-        <div style="font-size:0.75rem;font-weight:700;color:{TEXT2};margin:1.2rem 0 0.5rem;">
-            🎓 Everything you unlock:
-        </div>
-        <div style="display:flex;flex-wrap:wrap;gap:0.35rem;">
-            <span style="background:{CARD};border:1px solid {BORDER};border-radius:100px;padding:0.25rem 0.7rem;font-size:0.7rem;color:{TEXT2};">📝 Smart Notes</span>
-            <span style="background:{CARD};border:1px solid {BORDER};border-radius:100px;padding:0.25rem 0.7rem;font-size:0.7rem;color:{TEXT2};">🎴 Flashcards</span>
-            <span style="background:{CARD};border:1px solid {BORDER};border-radius:100px;padding:0.25rem 0.7rem;font-size:0.7rem;color:{TEXT2};">❓ AI Quiz</span>
-            <span style="background:{CARD};border:1px solid {BORDER};border-radius:100px;padding:0.25rem 0.7rem;font-size:0.7rem;color:{TEXT2};">🧪 Feynman Check</span>
-            <span style="background:{CARD};border:1px solid {BORDER};border-radius:100px;padding:0.25rem 0.7rem;font-size:0.7rem;color:{TEXT2};">🤖 Socratic Tutor</span>
-            <span style="background:{CARD};border:1px solid {BORDER};border-radius:100px;padding:0.25rem 0.7rem;font-size:0.7rem;color:{TEXT2};">🎓 Exam Mode</span>
-            <span style="background:{CARD};border:1px solid {BORDER};border-radius:100px;padding:0.25rem 0.7rem;font-size:0.7rem;color:{TEXT2};">🧠 Mind Map</span>
-            <span style="background:{CARD};border:1px solid {BORDER};border-radius:100px;padding:0.25rem 0.7rem;font-size:0.7rem;color:{TEXT2};">⚡ TL;DR</span>
-            <span style="background:{CARD};border:1px solid {BORDER};border-radius:100px;padding:0.25rem 0.7rem;font-size:0.7rem;color:{TEXT2};">⏱ Pomodoro</span>
-            <span style="background:{CARD};border:1px solid {BORDER};border-radius:100px;padding:0.25rem 0.7rem;font-size:0.7rem;color:{TEXT2};">🌙 Dark / Light</span>
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown("""
+<div class="setup-privacy">
+    🔒 <strong>Your privacy:</strong> Key stored only in your browser session.
+    Never sent to our servers. Auto-deleted when you close this tab.
+</div>
+<div class="setup-unlock-title">🎓 Everything you unlock:</div>
+<div class="setup-pills">
+    <span class="setup-pill">📝 Smart Notes</span>
+    <span class="setup-pill">🎴 Flashcards</span>
+    <span class="setup-pill">❓ AI Quiz</span>
+    <span class="setup-pill">🧪 Feynman Check</span>
+    <span class="setup-pill">🤖 Socratic Tutor</span>
+    <span class="setup-pill">🎓 Exam Mode</span>
+    <span class="setup-pill">🧠 Mind Map</span>
+    <span class="setup-pill">💡 Mnemonics</span>
+    <span class="setup-pill">⚡ TL;DR</span>
+    <span class="setup-pill">👶 ELI5</span>
+    <span class="setup-pill">⏱ Pomodoro</span>
+    <span class="setup-pill">🌙 Dark / Light</span>
+</div>
+""", unsafe_allow_html=True)
 
 # ── GATE ──
 if not user_has_key():
