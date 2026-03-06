@@ -53,8 +53,8 @@ if dark:
     FC_BG       = "linear-gradient(135deg,#080e1c,#0a1428)"
     FC_BORDER   = "#1e3254"
     FC_Q        = "#93c5fd"
-    SB_BG       = "#060a12"
-    SB_BORDER   = "#1a2a44"
+    SB_BG       = "#0a0f1e"
+    SB_BORDER   = "#2a3f6a"
     SCROLLBAR   = "#1a2a4a"
     SETUP_BG    = "linear-gradient(135deg,#070f20,#0a1428)"
     STAT_VAL    = "#60a5fa"
@@ -72,9 +72,9 @@ else:
     BG3         = "#ffffff"
     BORDER      = "#d0d8ee"
     BORDER2     = "#c0ccee"
-    TEXT        = "#1a2240"
-    TEXT2       = "#5a6888"
-    TEXT3       = "#8898bb"
+    TEXT        = "#0f1a30"
+    TEXT2       = "#2a3a5a"
+    TEXT3       = "#4a5a7a"
     ACCENT      = "#2563eb"
     ACCENT2     = "#4338ca"
     MUTED       = "#4a6aaa"
@@ -94,8 +94,8 @@ else:
     FC_BG       = "linear-gradient(135deg,#f5f8ff,#eef2ff)"
     FC_BORDER   = "#c8d4f8"
     FC_Q        = "#2a4a8a"
-    SB_BG       = "#e8edf8"
-    SB_BORDER   = "#c8d4f8"
+    SB_BG       = "#dce6f8"
+    SB_BORDER   = "#aabde8"
     SCROLLBAR   = "#c0ccee"
     SETUP_BG    = "linear-gradient(135deg,#dce8ff,#eef3ff)"
     STAT_VAL    = "#2563eb"
@@ -129,9 +129,11 @@ html, body, [data-testid="stAppViewContainer"], [data-testid="stApp"] {{
 
 .block-container {{ max-width: 1080px !important; margin: 0 auto !important; padding: 0 2rem 6rem !important; }}
 
-[data-testid="stSidebar"] {{
+[data-testid="stSidebar"],
+[data-testid="stSidebar"] > div,
+section[data-testid="stSidebar"] {{
     background: {SB_BG} !important;
-    border-right: 1px solid {SB_BORDER} !important;
+    border-right: 2px solid {SB_BORDER} !important;
     min-width: 260px !important;
 }}
 [data-testid="stSidebar"] > div:first-child {{ padding: 1.5rem 1.2rem !important; }}
@@ -306,12 +308,19 @@ div[data-baseweb="select"] input[type="text"], .stSelectbox input {{
 [data-baseweb="popover"] {{ background: {CARD_BG} !important; border: 1px solid {BORDER2} !important; border-radius: 12px !important; }}
 [data-baseweb="option"] {{ background: {CARD_BG} !important; color: {TEXT2} !important; cursor: pointer !important; }}
 [data-baseweb="option"]:hover {{ background: {BTN_BG} !important; color: {ACCENT} !important; }}
-/* Sidebar all text */
-[data-testid="stSidebar"] * {{ color: {TEXT2} !important; }}
-[data-testid="stSidebar"] .sb-label {{ color: {TEXT3} !important; }}
-[data-testid="stSidebar"] [data-testid="stMetricValue"] {{ color: {STAT_VAL} !important; }}
+/* Sidebar all text - FORCED VISIBLE */
+[data-testid="stSidebar"] p,
+[data-testid="stSidebar"] span,
+[data-testid="stSidebar"] label,
+[data-testid="stSidebar"] div,
+[data-testid="stSidebar"] small {{ color: {TEXT2} !important; }}
+[data-testid="stSidebar"] .sb-label {{ color: {TEXT3} !important; font-weight:700 !important; }}
+[data-testid="stSidebar"] [data-testid="stMetricValue"] {{ color: {STAT_VAL} !important; font-size:1.2rem !important; }}
+[data-testid="stSidebar"] [data-testid="metric-container"] label {{ color: {TEXT3} !important; }}
 [data-testid="stSidebar"] button {{ color: {BTN_TEXT} !important; }}
-[data-testid="stSidebar"] .key-live + span {{ color: #10b981 !important; }}
+[data-testid="stSidebar"] [data-baseweb="select"] span {{ color: {TEXT} !important; }}
+[data-testid="stSidebar"] [data-baseweb="slider"] [data-testid="stThumbValue"] {{ color: {ACCENT} !important; }}
+[data-testid="stSidebar"] a {{ color: {ACCENT} !important; }}
 
 /* ── RADIO ── */
 .stRadio > div {{ gap: 0.4rem !important; }}
