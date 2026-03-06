@@ -514,7 +514,7 @@ with st.sidebar:
     st.markdown('<span class="sb-label">🔑 API Keys</span>', unsafe_allow_html=True)
     uk = len(st.session_state.user_api_keys)
     st.markdown(f'<span class="key-live"></span><span style="font-size:0.82rem;color:#10b981;">{uk} personal key(s) active</span>', unsafe_allow_html=True)
-    with st.expander("➕ Add / Manage Keys"):
+    with st.expander("Add / Manage Keys"):
         st.caption("👉 [aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey)")
         nk = st.text_input("", type="password", placeholder="AIzaSy...", key="sb_key", label_visibility="collapsed")
         if st.button("Add Key", use_container_width=True, key="sb_add"):
@@ -539,7 +539,7 @@ with st.sidebar:
 st.markdown(f"""
 <div class="hero">
     <div class="eyebrow">✦ Powered by Google Gemini 2.5 Flash</div>
-    <div class="hero-title" style="color:#93c5fd;">Learn Smarter.<br>Not Harder.</div>
+    <div style="font-size:2.6rem;font-weight:800;line-height:1.15;color:#93c5fd;margin-bottom:0.8rem;letter-spacing:-0.02em;font-family:'Plus Jakarta Sans',sans-serif;">Learn Smarter.<br>Not Harder.</div>
     <div class="hero-sub">Transform any topic or document into notes, flashcards, quizzes and more — in seconds.</div>
     <div class="hero-stats">
         <div><div class="stat-val">10+</div><div class="stat-lbl">AI Features</div></div>
