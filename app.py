@@ -29,39 +29,39 @@ if dark:
     BG          = "#05080f"
     BG2         = "#080c16"
     BG3         = "#080e1c"
-    BORDER      = "#0f1d35"
-    BORDER2     = "#0f2040"
-    TEXT        = "#dde3f0"
-    TEXT2       = "#4a6080"
-    TEXT3       = "#1e3a5f"
-    ACCENT      = "#2563eb"
-    ACCENT2     = "#4338ca"
-    MUTED       = "#3a5a8a"
+    BORDER      = "#1a2a44"
+    BORDER2     = "#1e3254"
+    TEXT        = "#e8eef8"
+    TEXT2       = "#7a9cc4"
+    TEXT3       = "#4a7aaa"
+    ACCENT      = "#3b82f6"
+    ACCENT2     = "#4f46e5"
+    MUTED       = "#5a8ab4"
     CARD_BG     = "#080e1c"
     HERO_BG     = "linear-gradient(135deg,#070e1e 0%,#0a1428 50%,#060c1a 100%)"
-    HERO_BORDER = "#0f2040"
+    HERO_BORDER = "#1e3254"
     HERO_TITLE  = "linear-gradient(135deg,#e2e8f8 0%,#93c5fd 40%,#818cf8 70%,#c084fc 100%)"
-    HERO_SUB    = "#4a6080"
+    HERO_SUB    = "#7a9cc4"
     BTN_BG      = "#0d1829"
-    BTN_BORDER  = "#0f2040"
-    BTN_TEXT    = "#7a9cc4"
+    BTN_BORDER  = "#1e3254"
+    BTN_TEXT    = "#93b4d8"
     INPUT_BG    = "#080e1c"
-    PILL_BG     = "#080e1c"
-    PILL_BORDER = "#0f1e38"
-    PILL_TEXT   = "#3a5a8a"
+    PILL_BG     = "#0a1428"
+    PILL_BORDER = "#1e3254"
+    PILL_TEXT   = "#5a8ab4"
     TAB_BG      = "#080e1c"
     FC_BG       = "linear-gradient(135deg,#080e1c,#0a1428)"
-    FC_BORDER   = "#0f2040"
-    FC_Q        = "#7aaad8"
-    SB_BG       = "#080c16"
-    SB_BORDER   = "#0f1d35"
+    FC_BORDER   = "#1e3254"
+    FC_Q        = "#93c5fd"
+    SB_BG       = "#060a12"
+    SB_BORDER   = "#1a2a44"
     SCROLLBAR   = "#1a2a4a"
     SETUP_BG    = "linear-gradient(135deg,#070f20,#0a1428)"
     STAT_VAL    = "#60a5fa"
-    EYEBROW     = "#1e4a8a"
-    STAT_LBL    = "#2a3f5f"
-    HR          = "#080e1c"
-    PROG_BG     = "#0f1e38"
+    EYEBROW     = "#4a7aaa"
+    STAT_LBL    = "#4a6888"
+    HR          = "#1a2a44"
+    PROG_BG     = "#1a2a44"
     POMO        = "#60a5fa"
     TOGGLE_BG   = "#0d1829"
     TOGGLE_ICON = "🌙"
@@ -299,9 +299,19 @@ div[data-baseweb="select"] input[type="text"], .stSelectbox input {{
     cursor: pointer !important;
     color: {TEXT} !important;
 }}
+[data-baseweb="select"] span,
+[data-baseweb="select"] div[class*="ValueContainer"] *,
+[data-baseweb="select"] div[class*="singleValue"],
+[data-testid="stSelectbox"] span {{ color: {TEXT} !important; }}
 [data-baseweb="popover"] {{ background: {CARD_BG} !important; border: 1px solid {BORDER2} !important; border-radius: 12px !important; }}
 [data-baseweb="option"] {{ background: {CARD_BG} !important; color: {TEXT2} !important; cursor: pointer !important; }}
 [data-baseweb="option"]:hover {{ background: {BTN_BG} !important; color: {ACCENT} !important; }}
+/* Sidebar all text */
+[data-testid="stSidebar"] * {{ color: {TEXT2} !important; }}
+[data-testid="stSidebar"] .sb-label {{ color: {TEXT3} !important; }}
+[data-testid="stSidebar"] [data-testid="stMetricValue"] {{ color: {STAT_VAL} !important; }}
+[data-testid="stSidebar"] button {{ color: {BTN_TEXT} !important; }}
+[data-testid="stSidebar"] .key-live + span {{ color: #10b981 !important; }}
 
 /* ── RADIO ── */
 .stRadio > div {{ gap: 0.4rem !important; }}
@@ -377,6 +387,7 @@ details summary {{ color: {TEXT2} !important; font-family: 'Plus Jakarta Sans', 
     margin: 1.4rem 0 0.6rem;
     padding-bottom: 0.4rem;
     border-bottom: 1px solid {BORDER};
+    font-weight: 700;
 }}
 
 /* ── FLASHCARD ── */
