@@ -82,10 +82,23 @@ section[data-testid="stSidebar"] > div > div,
     position:relative!important;
     flex-shrink:0!important;
 }}
-[data-testid="collapsedControl"] {{
+[data-testid="collapsedControl"],
+[data-testid="collapsedControl"] *,
+button[kind="header"],
+[data-testid="stSidebarCollapseButton"],
+[data-testid="stSidebarCollapseButton"] * {{
     display:none!important;
+    visibility:hidden!important;
+    width:0!important;
+    height:0!important;
+    overflow:hidden!important;
 }}
 [data-testid="stSidebarNav"] {{
+    display:none!important;
+}}
+/* Hide the double arrow icon text */
+[data-testid="stSidebar"] [data-testid="stBaseButton-headerNoPadding"],
+[data-testid="stSidebar"] [data-testid="stBaseButton-headerNoPadding"] * {{
     display:none!important;
 }}
 [data-testid="stSidebar"] > div:first-child {{
@@ -514,7 +527,7 @@ with st.sidebar:
     st.markdown('<span class="sb-label">🔑 API Keys</span>', unsafe_allow_html=True)
     uk = len(st.session_state.user_api_keys)
     st.markdown(f'<span class="key-live"></span><span style="font-size:0.82rem;color:#10b981;">{uk} personal key(s) active</span>', unsafe_allow_html=True)
-    with st.expander("Add / Manage Keys"):
+    with st.expander("Manage Keys"):
         st.caption("👉 [aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey)")
         nk = st.text_input("", type="password", placeholder="AIzaSy...", key="sb_key", label_visibility="collapsed")
         if st.button("Add Key", use_container_width=True, key="sb_add"):
