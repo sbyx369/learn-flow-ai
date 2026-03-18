@@ -1,1152 +1,832 @@
 import streamlit as st
-import google.generativeai as genai
-import PyPDF2
-from docx import Document
-import datetime
 import time
 import re
+import datetime
 
-# ═══════════════════════════════════════════════════════════
+try:
+    import PyPDF2
+    PDF_OK = True
+except ImportError:
+    PDF_OK = False
+
+try:
+    from docx import Document
+    DOCX_OK = True
+except ImportError:
+    DOCX_OK = False
+
+from groq import Groq
+
+# ═══════════════════════════════════════════════════════════════════════════
 # PAGE CONFIG
-# ═══════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════════
 st.set_page_config(
-    page_title="LearnFlow AI",
+    page_title="LearnFlow AI — Study Smarter",
     page_icon="🧠",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="expanded",
 )
 
-# ═══════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════════
+# GROQ  →  .streamlit/secrets.toml  →  GROQ_API_KEY = "gsk_..."
+# ═══════════════════════════════════════════════════════════════════════════
+@st.cache_resource
+def groq_client():
+    return Groq(api_key=st.secrets["GROQ_API_KEY"])
+
+MODELS = ["llama-3.3-70b-versatile", "llama3-70b-8192", "mixtral-8x7b-32768"]
+
+def ai(prompt: str, temp: float = 0.4) -> str:
+    client = groq_client()
+    for model in MODELS:
+        try:
+            r = client.chat.completions.create(
+                model=model,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=temp,
+                max_tokens=2000,
+            )
+            return r.choices[0].message.content.strip()
+        except Exception as e:
+            err = str(e)
+            if "rate_limit" in err.lower() or "429" in err:
+                time.sleep(2)
+                continue
+            if "model" in err.lower() or "not found" in err.lower():
+                continue
+            return f"❌ {err}"
+    return "❌ All models rate-limited. Wait a moment and try again."
+
+# ═══════════════════════════════════════════════════════════════════════════
 # SESSION STATE
-# ═══════════════════════════════════════════════════════════
-DEFAULTS = {
-    "dark_mode": True,
-    "user_api_keys": [],
-    "history": [],
-    "notes_content": None,
-    "notes_heading": None,
-    "tldr": None,
-    "generated_output": None,
-    "generated_heading": None,
-    "quiz_score": None,
+# ═══════════════════════════════════════════════════════════════════════════
+DEFAULTS: dict = {
+    "dark_mode":     True,
+    "level":         "Intermediate",
+    "persona":       "University Professor",
+    "creativity":    0.4,
+    "history":       [],
+    "notes":         None,
+    "notes_heading": "",
+    "tldr":          None,
+    "out_content":   None,
+    "out_label":     "",
+    "quiz_raw":      None,
+    "quiz_score":    None,
+    "quiz_answers":  {},
     "tutor_history": [],
-    "feynman_feedback": None,
-    "pomo_start": None,
-    "pomo_duration": 0,
-    "pomo_running": False,
+    "feynman_fb":    None,
+    "pomo_running":  False,
+    "pomo_start":    None,
+    "pomo_duration": 25 * 60,
+    "fc_revealed":   {},
+    "active_tool":   None,
 }
 for k, v in DEFAULTS.items():
     if k not in st.session_state:
         st.session_state[k] = v
 
+# ═══════════════════════════════════════════════════════════════════════════
+# THEME TOKENS
+# ═══════════════════════════════════════════════════════════════════════════
 dark = st.session_state.dark_mode
 
-# ═══════════════════════════════════════════════════════════
-# THEME COLORS
-# ═══════════════════════════════════════════════════════════
 if dark:
-    BG      = "#06080f"
-    SB      = "#09111f"
-    CARD    = "#0d1726"
-    BORDER  = "#1e3358"
-    TEXT    = "#e8eeff"
-    TEXT2   = "#7b9cc8"
-    TEXT3   = "#3d6090"
-    ACCENT  = "#3b82f6"
-    ACCENT2 = "#6366f1"
-    INPUT   = "#0a1220"
-    BTN     = "#0e1c35"
-    BTN_T   = "#7aaad8"
-    HERO    = "linear-gradient(135deg,#060e20 0%,#0a1530 50%,#060b1a 100%)"
-    HTITLE  = "#93c5fd"
-    HSUB    = "#5a82b0"
-    PILL_BG = "#0a1428"
-    PILL_T  = "#4a7aaa"
-    POMO_C  = "#60a5fa"
-    STAT_V  = "#60a5fa"
-    GREEN   = "#10b981"
-    EYEBROW = "#2a5898"
+    BG       = "#050810"
+    SB       = "#080c18"
+    CARD     = "#0c1222"
+    CARD2    = "#101828"
+    BORDER   = "#1a2744"
+    BORDER2  = "#243560"
+    TEXT     = "#e8eeff"
+    TEXT2    = "#8ba4d4"
+    TEXT3    = "#3d5580"
+    ACCENT   = "#4f8ef7"
+    ACCENT2  = "#7c6ff7"
+    ACCENT3  = "#06d6a0"
+    INPUT    = "#090e1d"
+    BTN      = "#0e1830"
+    BTN_T    = "#7aa8e8"
+    HERO_G   = "linear-gradient(135deg, #060c1e 0%, #0b1535 40%, #070d1e 100%)"
+    HTITLE   = "#a8c8ff"
+    HSUB     = "#4a6a9a"
+    PILL_BG  = "#0b1428"
+    PILL_T   = "#4a7aaa"
+    STAT_V   = "#4f8ef7"
+    GREEN    = "#06d6a0"
+    ORANGE   = "#ff9f43"
+    PINK     = "#ff6b9d"
+    MONO     = "#4f8ef7"
+    GLOW     = "rgba(79,142,247,0.12)"
+    GLOW2    = "rgba(124,111,247,0.08)"
 else:
-    BG      = "#f0f4ff"
-    SB      = "#e0eaf8"
-    CARD    = "#ffffff"
-    BORDER  = "#b8cef0"
-    TEXT    = "#0d1a35"
-    TEXT2   = "#2a4070"
-    TEXT3   = "#5a78a8"
-    ACCENT  = "#2563eb"
-    ACCENT2 = "#4338ca"
-    INPUT   = "#ffffff"
-    BTN     = "#eef2ff"
-    BTN_T   = "#2563eb"
-    HERO    = "linear-gradient(135deg,#ddeaff 0%,#eef3ff 50%,#e8e4ff 100%)"
-    HTITLE  = "#1e40af"
-    HSUB    = "#3a5a90"
-    PILL_BG = "#eef2ff"
-    PILL_T  = "#3a5aaa"
-    POMO_C  = "#2563eb"
-    STAT_V  = "#2563eb"
-    GREEN   = "#059669"
-    EYEBROW = "#4a78cc"
+    BG       = "#f4f6fc"
+    SB       = "#eaeff8"
+    CARD     = "#ffffff"
+    CARD2    = "#f8faff"
+    BORDER   = "#d0daf0"
+    BORDER2  = "#b8c8e8"
+    TEXT     = "#0d1a35"
+    TEXT2    = "#2a4070"
+    TEXT3    = "#6880aa"
+    ACCENT   = "#2563eb"
+    ACCENT2  = "#4f46e5"
+    ACCENT3  = "#059669"
+    INPUT    = "#ffffff"
+    BTN      = "#eef2ff"
+    BTN_T    = "#2563eb"
+    HERO_G   = "linear-gradient(135deg, #ddeaff 0%, #eef3ff 50%, #e8e4ff 100%)"
+    HTITLE   = "#1e40af"
+    HSUB     = "#3a5a90"
+    PILL_BG  = "#eef2ff"
+    PILL_T   = "#3a5aaa"
+    STAT_V   = "#2563eb"
+    GREEN    = "#059669"
+    ORANGE   = "#d97706"
+    PINK     = "#db2777"
+    MONO     = "#4338ca"
+    GLOW     = "rgba(37,99,235,0.08)"
+    GLOW2    = "rgba(79,70,229,0.06)"
 
-# ═══════════════════════════════════════════════════════════
-# GLOBAL CSS
-# ═══════════════════════════════════════════════════════════
-st.markdown(f"""
-<style>
-@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap');
+# ═══════════════════════════════════════════════════════════════════════════
+# PREMIUM CSS
+# ═══════════════════════════════════════════════════════════════════════════
+st.markdown(f"""<style>
+@import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
-/* ── RESET & BASE ── */
-*, *::before, *::after {{ box-sizing: border-box; margin: 0; padding: 0; }}
+/* ── RESET ── */
+*,*::before,*::after{{box-sizing:border-box;margin:0;padding:0}}
 
-html, body,
-[data-testid="stApp"],
-[data-testid="stAppViewContainer"],
-[data-testid="stAppViewContainer"] > .main {{
-    background: {BG} !important;
-    color: {TEXT} !important;
-    font-family: 'Outfit', sans-serif !important;
+/* ── BASE ── */
+html,body,[data-testid="stApp"],[data-testid="stAppViewContainer"],
+[data-testid="stAppViewContainer"]>.main{{
+  background:{BG}!important;
+  color:{TEXT}!important;
+  font-family:'DM Sans',sans-serif!important;
 }}
 
-/* ── HIDE STREAMLIT CHROME (Kept header visible for sidebar toggle!) ── */
-#MainMenu, footer,
-[data-testid="stDecoration"],
-[data-testid="stStatusWidget"] {{
-    display: none !important;
-    visibility: hidden !important;
-    width: 0 !important;
-    height: 0 !important;
-}}
-
-/* Ensure the header is transparent so it looks good */
-header[data-testid="stHeader"] {{
-    background: transparent !important;
-}}
+/* ── HIDE CHROME ── */
+#MainMenu,footer,[data-testid="stDecoration"],[data-testid="stStatusWidget"]{{display:none!important}}
+header[data-testid="stHeader"]{{background:transparent!important}}
 
 /* ── SCROLLBAR ── */
-::-webkit-scrollbar {{ width: 4px; height: 4px; }}
-::-webkit-scrollbar-track {{ background: transparent; }}
-::-webkit-scrollbar-thumb {{ background: {BORDER}; border-radius: 10px; }}
+::-webkit-scrollbar{{width:3px;height:3px}}
+::-webkit-scrollbar-track{{background:transparent}}
+::-webkit-scrollbar-thumb{{background:{BORDER2};border-radius:10px}}
+::-webkit-scrollbar-thumb:hover{{background:{ACCENT}}}
 
 /* ── MAIN CONTENT ── */
-.block-container {{
-    max-width: 1000px !important;
-    margin: 0 auto !important;
-    padding: 1.5rem 2rem 6rem !important;
-    background: {BG} !important;
+.block-container{{
+  max-width:960px!important;
+  margin:0 auto!important;
+  padding:1rem 2rem 8rem!important;
+  background:{BG}!important;
 }}
 
-/* ══════════════════════════════
+/* ══════════════════════════════════════
    SIDEBAR
-══════════════════════════════ */
-[data-testid="stSidebar"] {{
-    background: {SB} !important;
-    border-right: 1px solid {BORDER} !important;
-    min-width: 260px !important;
-    max-width: 280px !important;
+══════════════════════════════════════ */
+[data-testid="stSidebar"]{{
+  background:{SB}!important;
+  border-right:1px solid {BORDER}!important;
+  min-width:265px!important;
+  max-width:275px!important;
 }}
-[data-testid="stSidebar"] > div,
-[data-testid="stSidebar"] > div > div,
+[data-testid="stSidebar"]>div,
+[data-testid="stSidebar"]>div>div,
 section[data-testid="stSidebar"],
-section[data-testid="stSidebar"] > div {{
-    background: {SB} !important;
-}}
-[data-testid="stSidebar"] > div:first-child {{
-    padding: 1rem 0.9rem !important;
-    background: {SB} !important;
-}}
-
-/* Sidebar text */
+section[data-testid="stSidebar"]>div{{background:{SB}!important}}
+[data-testid="stSidebar"]>div:first-child{{padding:1rem!important;background:{SB}!important}}
 [data-testid="stSidebar"] p,
 [data-testid="stSidebar"] span,
 [data-testid="stSidebar"] label,
-[data-testid="stSidebar"] li,
-[data-testid="stSidebar"] small {{
-    color: {TEXT2} !important;
-    font-family: 'Outfit', sans-serif !important;
-}}
-[data-testid="stSidebar"] h1,
-[data-testid="stSidebar"] h2,
-[data-testid="stSidebar"] h3 {{
-    color: {TEXT} !important;
-}}
-
-/* Sidebar selectbox */
-[data-testid="stSidebar"] [data-baseweb="select"] > div {{
-    background: {INPUT} !important;
-    border: 1px solid {BORDER} !important;
-    border-radius: 8px !important;
-    color: {TEXT} !important;
+[data-testid="stSidebar"] small{{color:{TEXT2}!important;font-family:'DM Sans',sans-serif!important}}
+[data-testid="stSidebar"] [data-baseweb="select"]>div{{
+  background:{INPUT}!important;border:1px solid {BORDER}!important;
+  border-radius:10px!important;color:{TEXT}!important;font-family:'DM Sans',sans-serif!important;
 }}
 [data-testid="stSidebar"] [data-baseweb="select"] span,
-[data-testid="stSidebar"] [data-baseweb="select"] div[class*="singleValue"] {{
-    color: {TEXT} !important;
+[data-testid="stSidebar"] [data-baseweb="select"] div[class*="singleValue"]{{color:{TEXT}!important}}
+[data-testid="stSidebar"] .stButton>button{{
+  background:{BTN}!important;color:{BTN_T}!important;
+  border:1px solid {BORDER}!important;font-size:0.8rem!important;
+  font-family:'DM Sans',sans-serif!important;border-radius:10px!important;
+}}
+[data-testid="stSidebar"] .stButton>button:hover{{border-color:{ACCENT}!important;color:{ACCENT}!important}}
+[data-testid="stSidebar"] [data-testid="metric-container"]{{
+  background:{INPUT}!important;border:1px solid {BORDER}!important;
+  border-radius:12px!important;padding:0.65rem 0.85rem!important;
+}}
+[data-testid="stSidebar"] [data-testid="stMetricValue"]{{
+  color:{STAT_V}!important;font-family:'JetBrains Mono',monospace!important;font-size:1.25rem!important;
+}}
+[data-testid="stSidebar"] [data-testid="metric-container"] label{{
+  color:{TEXT3}!important;font-size:0.6rem!important;
+  text-transform:uppercase!important;letter-spacing:0.12em!important;
 }}
 
-/* Sidebar buttons */
-[data-testid="stSidebar"] .stButton > button {{
-    background: {BTN} !important;
-    color: {BTN_T} !important;
-    border: 1px solid {BORDER} !important;
-    font-size: 0.82rem !important;
+/* ══════════════════════════════════════
+   BUTTONS — PREMIUM
+══════════════════════════════════════ */
+.stButton>button{{
+  background:{BTN}!important;
+  color:{BTN_T}!important;
+  border:1px solid {BORDER}!important;
+  border-radius:12px!important;
+  font-family:'DM Sans',sans-serif!important;
+  font-weight:600!important;
+  font-size:0.84rem!important;
+  padding:0.6rem 1rem!important;
+  transition:all 0.2s cubic-bezier(0.4,0,0.2,1)!important;
+  cursor:pointer!important;
+  width:100%!important;
+  letter-spacing:0.01em!important;
+  position:relative!important;
+  overflow:hidden!important;
 }}
-[data-testid="stSidebar"] .stButton > button:hover {{
-    border-color: {ACCENT} !important;
-    color: {ACCENT} !important;
+.stButton>button:hover{{
+  border-color:{ACCENT}!important;
+  color:{ACCENT}!important;
+  transform:translateY(-2px)!important;
+  box-shadow:0 8px 24px {GLOW}!important;
 }}
-
-/* Sidebar expander */
-[data-testid="stSidebar"] details {{
-    background: {INPUT} !important;
-    border: 1px solid {BORDER} !important;
-    border-radius: 8px !important;
+.stButton>button:active{{transform:translateY(0)!important}}
+.stButton>button[kind="primary"]{{
+  background:linear-gradient(135deg,{ACCENT},{ACCENT2})!important;
+  color:#fff!important;border:none!important;
+  box-shadow:0 4px 20px {GLOW}!important;
+  font-weight:700!important;
 }}
-[data-testid="stSidebar"] details summary {{
-    color: {TEXT2} !important;
-    background: {INPUT} !important;
-    font-size: 0.83rem !important;
-    padding: 0.6rem 0.8rem !important;
-    cursor: pointer !important;
-}}
-
-/* Sidebar text input */
-[data-testid="stSidebar"] .stTextInput > div > div > input {{
-    background: {INPUT} !important;
-    color: {TEXT} !important;
-    border: 1px solid {BORDER} !important;
-    border-radius: 8px !important;
-    font-size: 0.82rem !important;
-}}
-
-/* Sidebar metrics */
-[data-testid="stSidebar"] [data-testid="metric-container"] {{
-    background: {INPUT} !important;
-    border: 1px solid {BORDER} !important;
-    border-radius: 10px !important;
-    padding: 0.6rem 0.8rem !important;
-}}
-[data-testid="stSidebar"] [data-testid="stMetricValue"] {{
-    color: {STAT_V} !important;
-    font-family: 'JetBrains Mono', monospace !important;
-    font-size: 1.3rem !important;
-}}
-[data-testid="stSidebar"] [data-testid="metric-container"] label {{
-    color: {TEXT3} !important;
-    font-size: 0.65rem !important;
-    text-transform: uppercase !important;
-    letter-spacing: 0.1em !important;
+.stButton>button[kind="primary"]:hover{{
+  box-shadow:0 8px 32px {GLOW}!important;
+  transform:translateY(-2px)!important;
+  opacity:0.95!important;
 }}
 
-/* Slider */
-[data-testid="stSidebar"] .stSlider [data-testid="stThumbValue"] {{
-    color: {ACCENT} !important;
-    font-size: 0.75rem !important;
-}}
-
-/* ══════════════════════════════
-   BUTTONS
-══════════════════════════════ */
-.stButton > button {{
-    background: {BTN} !important;
-    color: {BTN_T} !important;
-    border: 1px solid {BORDER} !important;
-    border-radius: 10px !important;
-    font-family: 'Outfit', sans-serif !important;
-    font-weight: 600 !important;
-    font-size: 0.85rem !important;
-    padding: 0.55rem 1rem !important;
-    transition: all 0.15s ease !important;
-    cursor: pointer !important;
-    width: 100% !important;
-    letter-spacing: 0.01em !important;
-}}
-.stButton > button:hover {{
-    border-color: {ACCENT} !important;
-    color: {ACCENT} !important;
-    transform: translateY(-1px) !important;
-    box-shadow: 0 4px 16px rgba(59,130,246,0.15) !important;
-}}
-.stButton > button[kind="primary"] {{
-    background: linear-gradient(135deg, {ACCENT}, {ACCENT2}) !important;
-    color: #fff !important;
-    border: none !important;
-    box-shadow: 0 2px 12px rgba(59,130,246,0.25) !important;
-}}
-.stButton > button[kind="primary"]:hover {{
-    box-shadow: 0 4px 20px rgba(59,130,246,0.4) !important;
-    transform: translateY(-1px) !important;
-}}
-
-/* ── CURSOR ── */
-button, [role="button"], label, summary,
-[data-baseweb="tab"], [data-baseweb="option"],
-[data-testid="stFileUploader"] * {{ cursor: pointer !important; }}
-[data-baseweb="select"] input {{
-    caret-color: transparent !important;
-    cursor: pointer !important;
-    pointer-events: none !important;
-}}
-
-/* ── INPUTS ── */
+/* ══════════════════════════════════════
+   INPUTS
+══════════════════════════════════════ */
 .stTextArea textarea,
-.stTextInput > div > div > input {{
-    background: {INPUT} !important;
-    border: 1px solid {BORDER} !important;
-    border-radius: 10px !important;
-    color: {TEXT} !important;
-    font-family: 'Outfit', sans-serif !important;
-    font-size: 0.9rem !important;
-    transition: border-color 0.15s !important;
+.stTextInput>div>div>input{{
+  background:{INPUT}!important;
+  border:1px solid {BORDER}!important;
+  border-radius:12px!important;
+  color:{TEXT}!important;
+  font-family:'DM Sans',sans-serif!important;
+  font-size:0.92rem!important;
+  transition:all 0.2s!important;
+  line-height:1.6!important;
 }}
 .stTextArea textarea:focus,
-.stTextInput > div > div > input:focus {{
-    border-color: {ACCENT} !important;
-    box-shadow: 0 0 0 3px rgba(59,130,246,0.1) !important;
-    outline: none !important;
+.stTextInput>div>div>input:focus{{
+  border-color:{ACCENT}!important;
+  box-shadow:0 0 0 3px {GLOW}!important;
+  outline:none!important;
 }}
 .stTextArea textarea::placeholder,
-.stTextInput input::placeholder {{ color: {TEXT3} !important; }}
+.stTextInput input::placeholder{{color:{TEXT3}!important}}
 
 /* ── FILE UPLOADER ── */
-[data-testid="stFileUploader"] {{
-    background: {INPUT} !important;
-    border: 1.5px dashed {BORDER} !important;
-    border-radius: 12px !important;
-    transition: border-color 0.15s !important;
+[data-testid="stFileUploader"]{{
+  background:{INPUT}!important;
+  border:1.5px dashed {BORDER2}!important;
+  border-radius:14px!important;
+  transition:all 0.2s!important;
 }}
-[data-testid="stFileUploader"]:hover {{ border-color: {ACCENT} !important; }}
-[data-testid="stFileUploader"] * {{ color: {TEXT2} !important; }}
+[data-testid="stFileUploader"]:hover{{border-color:{ACCENT}!important;background:{GLOW}!important}}
+[data-testid="stFileUploader"] *{{color:{TEXT2}!important}}
 
-/* ── SELECTBOX ── */
-[data-baseweb="select"] > div {{
-    background: {INPUT} !important;
-    border: 1px solid {BORDER} !important;
-    border-radius: 10px !important;
-    color: {TEXT} !important;
-    cursor: pointer !important;
+/* ── SELECT ── */
+[data-baseweb="select"]>div{{
+  background:{INPUT}!important;border:1px solid {BORDER}!important;
+  border-radius:10px!important;color:{TEXT}!important;
 }}
-[data-baseweb="select"] span {{ color: {TEXT} !important; }}
-[data-baseweb="popover"] > div {{
-    background: {CARD} !important;
-    border: 1px solid {BORDER} !important;
-    border-radius: 12px !important;
-}}
-[data-baseweb="option"] {{
-    background: {CARD} !important;
-    color: {TEXT2} !important;
-    cursor: pointer !important;
-    font-size: 0.88rem !important;
-}}
-[data-baseweb="option"]:hover {{
-    background: {BTN} !important;
-    color: {ACCENT} !important;
-}}
+[data-baseweb="select"] span{{color:{TEXT}!important}}
+[data-baseweb="popover"]>div{{background:{CARD}!important;border:1px solid {BORDER}!important;border-radius:14px!important;box-shadow:0 20px 60px rgba(0,0,0,0.3)!important}}
+[data-baseweb="option"]{{background:{CARD}!important;color:{TEXT2}!important;font-family:'DM Sans',sans-serif!important;font-size:0.87rem!important}}
+[data-baseweb="option"]:hover{{background:{BTN}!important;color:{ACCENT}!important}}
 
 /* ── TABS ── */
-.stTabs [data-baseweb="tab-list"] {{
-    background: {INPUT} !important;
-    border-radius: 12px !important;
-    padding: 4px !important;
-    border: 1px solid {BORDER} !important;
-    gap: 3px !important;
+.stTabs [data-baseweb="tab-list"]{{
+  background:{INPUT}!important;border-radius:14px!important;
+  padding:5px!important;border:1px solid {BORDER}!important;gap:4px!important;
 }}
-.stTabs [data-baseweb="tab"] {{
-    background: transparent !important;
-    color: {TEXT3} !important;
-    border-radius: 8px !important;
-    font-family: 'Outfit', sans-serif !important;
-    font-weight: 600 !important;
-    font-size: 0.84rem !important;
-    border: none !important;
-    cursor: pointer !important;
-    padding: 0.45rem 1rem !important;
-    transition: all 0.15s !important;
+.stTabs [data-baseweb="tab"]{{
+  background:transparent!important;color:{TEXT3}!important;border-radius:10px!important;
+  font-family:'DM Sans',sans-serif!important;font-weight:600!important;
+  font-size:0.83rem!important;border:none!important;padding:0.5rem 1.1rem!important;
+  transition:all 0.2s!important;
 }}
-.stTabs [aria-selected="true"] {{
-    background: linear-gradient(135deg, {ACCENT}, {ACCENT2}) !important;
-    color: #ffffff !important;
+.stTabs [aria-selected="true"]{{
+  background:linear-gradient(135deg,{ACCENT},{ACCENT2})!important;
+  color:#fff!important;box-shadow:0 4px 14px {GLOW}!important;
 }}
 
 /* ── EXPANDER ── */
-details {{
-    background: {CARD} !important;
-    border: 1px solid {BORDER} !important;
-    border-radius: 12px !important;
-    overflow: hidden !important;
-    margin-bottom: 0.5rem !important;
+details{{
+  background:{CARD}!important;border:1px solid {BORDER}!important;
+  border-radius:14px!important;overflow:hidden!important;margin-bottom:0.6rem!important;
+  transition:all 0.2s!important;
 }}
-details > summary {{
-    color: {TEXT2} !important;
-    font-family: 'Outfit', sans-serif !important;
-    font-weight: 600 !important;
-    font-size: 0.88rem !important;
-    padding: 0.75rem 1rem !important;
-    cursor: pointer !important;
-    background: {CARD} !important;
-    list-style: none !important;
+details:hover{{border-color:{BORDER2}!important}}
+details>summary{{
+  color:{TEXT2}!important;font-family:'DM Sans',sans-serif!important;
+  font-weight:600!important;font-size:0.88rem!important;
+  padding:0.85rem 1.1rem!important;cursor:pointer!important;
+  background:{CARD}!important;list-style:none!important;
 }}
-details > summary::-webkit-details-marker {{ display: none; }}
+details>summary::-webkit-details-marker{{display:none}}
 
-/* ── ALERTS ── */
-[data-testid="stAlert"] {{
-    border-radius: 10px !important;
-    font-family: 'Outfit', sans-serif !important;
-    font-size: 0.88rem !important;
+/* ── PROGRESS ── */
+.stProgress>div{{background:{BORDER}!important;border-radius:100px!important;height:6px!important}}
+.stProgress>div>div{{
+  background:linear-gradient(90deg,{ACCENT},{ACCENT2},{ACCENT3})!important;
+  border-radius:100px!important;transition:width 0.6s ease!important;
 }}
 
 /* ── METRICS ── */
-[data-testid="metric-container"] {{
-    background: {CARD} !important;
-    border: 1px solid {BORDER} !important;
-    border-radius: 12px !important;
-    padding: 0.8rem 1rem !important;
+[data-testid="metric-container"]{{
+  background:{CARD}!important;border:1px solid {BORDER}!important;
+  border-radius:14px!important;padding:0.9rem 1.1rem!important;
+  transition:all 0.2s!important;
 }}
-[data-testid="stMetricValue"] {{
-    color: {STAT_V} !important;
-    font-family: 'JetBrains Mono', monospace !important;
-}}
-[data-testid="metric-container"] label {{
-    color: {TEXT3} !important;
-    font-size: 0.7rem !important;
-    text-transform: uppercase !important;
-    letter-spacing: 0.1em !important;
+[data-testid="metric-container"]:hover{{border-color:{BORDER2}!important;box-shadow:0 4px 20px {GLOW}!important}}
+[data-testid="stMetricValue"]{{color:{STAT_V}!important;font-family:'JetBrains Mono',monospace!important;font-weight:600!important}}
+[data-testid="metric-container"] label{{
+  color:{TEXT3}!important;font-size:0.68rem!important;
+  text-transform:uppercase!important;letter-spacing:0.1em!important;
 }}
 
-/* ── PROGRESS ── */
-.stProgress > div {{
-    background: {BORDER} !important;
-    border-radius: 100px !important;
-    height: 5px !important;
-}}
-.stProgress > div > div {{
-    background: linear-gradient(90deg, {ACCENT}, {ACCENT2}) !important;
-    border-radius: 100px !important;
-}}
+/* ── ALERTS ── */
+[data-testid="stAlert"]{{border-radius:12px!important;font-family:'DM Sans',sans-serif!important}}
 
-/* ── RADIO ── */
-.stRadio [data-testid="stMarkdownContainer"] p {{
-    font-size: 0.88rem !important;
-    color: {TEXT2} !important;
-}}
+hr{{border:none!important;border-top:1px solid {BORDER}!important;margin:1.2rem 0!important}}
 
-/* ── DIVIDER ── */
-hr {{
-    border: none !important;
-    border-top: 1px solid {BORDER} !important;
-    margin: 1.2rem 0 !important;
-}}
-
-/* ══════════════════════════════
+/* ══════════════════════════════════════
    CUSTOM COMPONENTS
-══════════════════════════════ */
+══════════════════════════════════════ */
 
-/* Sidebar section label */
-.sb-section {{
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.6rem;
-    font-weight: 700;
-    letter-spacing: 0.18em;
-    text-transform: uppercase;
-    color: {TEXT3};
-    padding: 1rem 0 0.4rem;
-    border-bottom: 1px solid {BORDER};
-    margin-bottom: 0.55rem;
-    display: block;
+/* Sidebar label */
+.sb-label{{
+  font-family:'JetBrains Mono',monospace;
+  font-size:0.58rem;font-weight:600;letter-spacing:0.2em;
+  text-transform:uppercase;color:{TEXT3};
+  padding:0.9rem 0 0.4rem;
+  border-bottom:1px solid {BORDER};
+  margin-bottom:0.6rem;display:block;
 }}
 
 /* Hero */
-.lf-hero {{
-    background: {HERO};
-    border: 1px solid {BORDER};
-    border-radius: 20px;
-    padding: 2.5rem 2.8rem;
-    margin-bottom: 1.2rem;
-    position: relative;
-    overflow: hidden;
+.lf-hero{{
+  background:{HERO_G};
+  border:1px solid {BORDER};
+  border-radius:24px;
+  padding:3rem 3rem 2.5rem;
+  margin-bottom:1.5rem;
+  position:relative;overflow:hidden;
 }}
-.lf-hero::after {{
-    content: '';
-    position: absolute;
-    top: -120px; right: -80px;
-    width: 360px; height: 360px;
-    background: radial-gradient(circle, rgba(59,130,246,0.06) 0%, transparent 65%);
-    pointer-events: none;
+.lf-hero::before{{
+  content:'';position:absolute;
+  top:-80px;right:-60px;
+  width:320px;height:320px;
+  background:radial-gradient(circle,{GLOW} 0%,transparent 70%);
+  pointer-events:none;border-radius:50%;
 }}
-.lf-eyebrow {{
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.64rem;
-    letter-spacing: 0.2em;
-    text-transform: uppercase;
-    color: {EYEBROW};
-    margin-bottom: 1rem;
+.lf-hero::after{{
+  content:'';position:absolute;
+  bottom:-60px;left:-40px;
+  width:220px;height:220px;
+  background:radial-gradient(circle,{GLOW2} 0%,transparent 70%);
+  pointer-events:none;border-radius:50%;
 }}
-.lf-title {{
-    font-size: 2.8rem;
-    font-weight: 900;
-    line-height: 1.1;
-    color: {HTITLE};
-    margin-bottom: 0.9rem;
-    letter-spacing: -0.03em;
-    font-family: 'Outfit', sans-serif;
+.lf-eyebrow{{
+  font-family:'JetBrains Mono',monospace;
+  font-size:0.62rem;letter-spacing:0.22em;text-transform:uppercase;
+  color:{MONO};margin-bottom:1.2rem;
+  display:inline-flex;align-items:center;gap:0.5rem;
 }}
-.lf-subtitle {{
-    font-size: 0.98rem;
-    color: {HSUB};
-    line-height: 1.7;
-    max-width: 500px;
-    font-weight: 400;
+.lf-eyebrow::before{{
+  content:'';width:6px;height:6px;border-radius:50%;
+  background:{ACCENT3};display:inline-block;
+  box-shadow:0 0 8px {ACCENT3};
 }}
-.lf-stats {{
-    display: flex;
-    gap: 2.5rem;
-    margin-top: 1.8rem;
-    padding-top: 1.5rem;
-    border-top: 1px solid {BORDER};
+.lf-title{{
+  font-family:'Syne',sans-serif;
+  font-size:3rem;font-weight:800;line-height:1.05;
+  color:{HTITLE};margin-bottom:1rem;letter-spacing:-0.04em;
 }}
-.lf-stat-val {{
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 1.4rem;
-    font-weight: 700;
-    color: {STAT_V};
+.lf-title span{{
+  background:linear-gradient(135deg,{ACCENT},{ACCENT2});
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;
 }}
-.lf-stat-lbl {{
-    font-size: 0.65rem;
-    color: {TEXT3};
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    margin-top: 0.15rem;
+.lf-subtitle{{font-size:1rem;color:{HSUB};line-height:1.75;max-width:520px;font-weight:400}}
+.lf-stats{{
+  display:flex;gap:3rem;margin-top:2rem;padding-top:1.8rem;
+  border-top:1px solid {BORDER};
+}}
+.lf-stat-val{{
+  font-family:'Syne',sans-serif;font-size:1.6rem;font-weight:800;
+  color:{STAT_V};line-height:1;
+}}
+.lf-stat-lbl{{
+  font-size:0.63rem;color:{TEXT3};text-transform:uppercase;
+  letter-spacing:0.12em;margin-top:0.2rem;font-weight:500;
 }}
 
-/* Pills */
-.lf-pills {{
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.4rem;
-    margin: 1rem 0 1.8rem;
+/* Feature pills */
+.lf-pills{{display:flex;flex-wrap:wrap;gap:0.4rem;margin:1.2rem 0 2rem}}
+.lf-pill{{
+  background:{PILL_BG};
+  border:1px solid {BORDER};
+  border-radius:100px;
+  padding:0.3rem 0.9rem;
+  font-size:0.71rem;color:{PILL_T};font-weight:500;
+  transition:all 0.2s;cursor:default;
+  font-family:'DM Sans',sans-serif;
 }}
-.lf-pill {{
-    background: {PILL_BG};
-    border: 1px solid {BORDER};
-    border-radius: 100px;
-    padding: 0.28rem 0.85rem;
-    font-size: 0.72rem;
-    color: {PILL_T};
-    font-weight: 500;
-    letter-spacing: 0.01em;
-}}
+.lf-pill:hover{{border-color:{ACCENT};color:{ACCENT};transform:translateY(-1px)}}
 
 /* Section header */
-.lf-section {{
-    display: flex;
-    align-items: flex-start;
-    gap: 0.8rem;
-    margin: 2rem 0 1rem;
+.lf-section{{
+  display:flex;align-items:flex-start;gap:1rem;
+  margin:2.5rem 0 1.2rem;
 }}
-.lf-section-num {{
-    width: 32px; height: 32px;
-    background: linear-gradient(135deg, {ACCENT}, {ACCENT2});
-    border-radius: 9px;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 0.8rem; font-weight: 700; color: #fff;
-    flex-shrink: 0; margin-top: 2px;
-    font-family: 'JetBrains Mono', monospace;
+.lf-section-num{{
+  width:36px;height:36px;flex-shrink:0;margin-top:1px;
+  background:linear-gradient(135deg,{ACCENT},{ACCENT2});
+  border-radius:10px;
+  display:flex;align-items:center;justify-content:center;
+  font-family:'JetBrains Mono',monospace;font-size:0.8rem;font-weight:700;color:#fff;
+  box-shadow:0 4px 16px {GLOW};
 }}
-.lf-section-title {{
-    font-size: 1.05rem;
-    font-weight: 700;
-    color: {TEXT};
-    letter-spacing: -0.01em;
+.lf-section-title{{
+  font-family:'Syne',sans-serif;
+  font-size:1.15rem;font-weight:700;color:{TEXT};letter-spacing:-0.02em;
 }}
-.lf-section-sub {{
-    font-size: 0.78rem;
-    color: {TEXT3};
-    margin-top: 0.15rem;
-    line-height: 1.5;
+.lf-section-sub{{font-size:0.78rem;color:{TEXT3};margin-top:0.2rem;line-height:1.5}}
+
+/* Output card */
+.lf-output{{
+  background:{CARD};border:1px solid {BORDER};border-radius:16px;
+  padding:1.5rem 1.75rem;margin-top:0.75rem;
+  border-left:3px solid {ACCENT};
+  font-size:0.92rem;line-height:1.8;color:{TEXT2};
 }}
 
 /* Flashcard */
-.lf-fc {{
-    background: {CARD};
-    border: 1px solid {BORDER};
-    border-left: 3px solid {ACCENT};
-    border-radius: 12px;
-    padding: 1.1rem 1.4rem;
-    margin-bottom: 0.7rem;
+.lf-fc{{
+  background:{CARD};
+  border:1px solid {BORDER};
+  border-radius:16px;
+  padding:1.25rem 1.5rem;
+  margin-bottom:0.75rem;
+  transition:all 0.2s;
+  position:relative;overflow:hidden;
 }}
-.lf-fc-num {{
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.62rem;
-    color: {TEXT3};
-    letter-spacing: 0.12em;
-    margin-bottom: 0.5rem;
-    text-transform: uppercase;
+.lf-fc::before{{
+  content:'';position:absolute;top:0;left:0;width:3px;height:100%;
+  background:linear-gradient(180deg,{ACCENT},{ACCENT2});
 }}
-.lf-fc-q {{
-    font-size: 0.9rem;
-    color: {TEXT2};
-    font-weight: 500;
-    line-height: 1.55;
+.lf-fc:hover{{border-color:{BORDER2};box-shadow:0 4px 24px {GLOW};transform:translateY(-1px)}}
+.lf-fc-num{{
+  font-family:'JetBrains Mono',monospace;font-size:0.6rem;color:{TEXT3};
+  letter-spacing:0.15em;margin-bottom:0.6rem;text-transform:uppercase;
 }}
+.lf-fc-q{{font-size:0.92rem;color:{TEXT2};font-weight:500;line-height:1.6}}
 
-/* Tutor bubbles */
-.lf-bubble-ai {{
-    background: {CARD};
-    border: 1px solid {BORDER};
-    border-radius: 14px 14px 14px 4px;
-    padding: 0.85rem 1rem;
-    margin: 0.4rem 0;
-    color: {TEXT2};
-    font-size: 0.87rem;
-    line-height: 1.55;
-    max-width: 85%;
+/* Chat bubbles */
+.lf-bubble-ai{{
+  background:{CARD};border:1px solid {BORDER};
+  border-radius:16px 16px 16px 4px;
+  padding:0.9rem 1.1rem;margin:0.5rem 0;
+  color:{TEXT2};font-size:0.88rem;line-height:1.6;max-width:88%;
+  position:relative;
 }}
-.lf-bubble-user {{
-    background: linear-gradient(135deg, rgba(59,130,246,0.1), rgba(99,102,241,0.1));
-    border: 1px solid rgba(59,130,246,0.2);
-    border-radius: 14px 14px 4px 14px;
-    padding: 0.85rem 1rem;
-    margin: 0.4rem 0 0.4rem auto;
-    color: {TEXT};
-    font-size: 0.87rem;
-    line-height: 1.55;
-    max-width: 85%;
-    text-align: right;
+.lf-bubble-ai::before{{
+  content:'🤖';position:absolute;top:-10px;left:12px;
+  font-size:14px;background:{BG};padding:0 4px;border-radius:4px;
+}}
+.lf-bubble-user{{
+  background:linear-gradient(135deg,{GLOW},{GLOW2});
+  border:1px solid {BORDER2};
+  border-radius:16px 16px 4px 16px;
+  padding:0.9rem 1.1rem;margin:0.5rem 0 0.5rem auto;
+  color:{TEXT};font-size:0.88rem;line-height:1.6;max-width:88%;text-align:right;
 }}
 
 /* Empty state */
-.lf-empty {{
-    text-align: center;
-    padding: 3rem 1rem;
-    border: 1.5px dashed {BORDER};
-    border-radius: 16px;
-    margin-top: 0.5rem;
+.lf-empty{{
+  text-align:center;padding:4rem 1rem;
+  border:1.5px dashed {BORDER};border-radius:20px;margin-top:0.5rem;
+  background:{CARD};
 }}
-.lf-empty-icon {{ font-size: 2.5rem; margin-bottom: 0.7rem; }}
-.lf-empty-title {{ font-size: 0.92rem; font-weight: 700; color: {TEXT2}; }}
-.lf-empty-sub {{ font-size: 0.78rem; color: {TEXT3}; margin-top: 0.3rem; }}
+.lf-empty-icon{{font-size:3rem;margin-bottom:0.8rem;display:block}}
+.lf-empty-title{{font-family:'Syne',sans-serif;font-size:1rem;font-weight:700;color:{TEXT2}}}
+.lf-empty-sub{{font-size:0.8rem;color:{TEXT3};margin-top:0.4rem;line-height:1.6}}
 
-/* Pomodoro timer */
-.lf-pomo {{
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 2.2rem;
-    font-weight: 700;
-    color: {POMO_C};
-    text-align: center;
-    letter-spacing: 0.05em;
-    padding: 0.3rem 0;
-    line-height: 1;
+/* Pomodoro */
+.lf-pomo{{
+  font-family:'JetBrains Mono',monospace;
+  font-size:2.4rem;font-weight:700;
+  color:{ACCENT};text-align:center;
+  letter-spacing:0.08em;padding:0.4rem 0;line-height:1;
+  text-shadow:0 0 30px {GLOW};
 }}
-.lf-pomo-label {{
-    font-size: 0.65rem;
-    color: {TEXT3};
-    text-align: center;
-    text-transform: uppercase;
-    letter-spacing: 0.12em;
-    margin-bottom: 0.3rem;
+.lf-pomo-label{{
+  font-size:0.6rem;color:{TEXT3};text-align:center;
+  text-transform:uppercase;letter-spacing:0.15em;margin-bottom:0.3rem;
+  font-family:'JetBrains Mono',monospace;
 }}
 
-/* API key status */
-.lf-key-dot {{
-    display: inline-block;
-    width: 7px; height: 7px;
-    border-radius: 50%;
-    background: {GREEN};
-    margin-right: 6px;
-    vertical-align: middle;
-    animation: lf-pulse 2s infinite;
+/* Status dot */
+.lf-dot{{
+  display:inline-block;width:7px;height:7px;border-radius:50%;
+  background:{ACCENT3};margin-right:6px;vertical-align:middle;
+  box-shadow:0 0 8px {ACCENT3};
+  animation:lf-pulse 2.5s infinite;
 }}
-@keyframes lf-pulse {{
-    0%, 100% {{ opacity: 1; box-shadow: 0 0 0 0 rgba(16,185,129,0.4); }}
-    50% {{ opacity: 0.7; box-shadow: 0 0 0 4px rgba(16,185,129,0); }}
+@keyframes lf-pulse{{
+  0%,100%{{opacity:1;box-shadow:0 0 6px {ACCENT3}}}
+  50%{{opacity:0.6;box-shadow:0 0 14px {ACCENT3}}}
 }}
 
-/* Setup page */
-.lf-setup-wrap {{
-    max-width: 540px;
-    margin: 0 auto;
-    padding: 1.5rem 0 4rem;
+/* Score badge */
+.lf-score-badge{{
+  display:inline-flex;align-items:center;justify-content:center;
+  width:56px;height:56px;border-radius:50%;
+  background:linear-gradient(135deg,{ACCENT},{ACCENT2});
+  color:#fff;font-family:'Syne',sans-serif;font-size:1.1rem;font-weight:800;
+  box-shadow:0 6px 20px {GLOW};
 }}
-.lf-setup-logo {{
-    text-align: center;
-    margin-bottom: 1.8rem;
-}}
-.lf-setup-logo-icon {{ font-size: 2.6rem; }}
-.lf-setup-logo-name {{
-    font-size: 1.5rem;
-    font-weight: 800;
-    color: {TEXT};
-    font-family: 'Outfit', sans-serif;
-    margin-top: 0.3rem;
-}}
-.lf-setup-logo-name span {{ color: {ACCENT}; }}
-.lf-setup-logo-sub {{
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.58rem;
-    color: {TEXT3};
-    letter-spacing: 0.18em;
-    text-transform: uppercase;
-    margin-top: 0.25rem;
-}}
-.lf-setup-card {{
-    background: {CARD};
-    border: 1px solid {BORDER};
-    border-radius: 20px;
-    padding: 2rem 2rem 1.5rem;
-    margin-bottom: 1rem;
-}}
-.lf-setup-badge {{
-    display: inline-block;
-    background: rgba(59,130,246,0.08);
-    border: 1px solid rgba(59,130,246,0.2);
-    color: {ACCENT};
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.6rem;
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    padding: 0.28rem 0.8rem;
-    border-radius: 100px;
-    margin-bottom: 1rem;
-}}
-.lf-setup-title {{
-    font-size: 1.4rem;
-    font-weight: 800;
-    color: {TEXT};
-    margin-bottom: 0.5rem;
-    letter-spacing: -0.02em;
-}}
-.lf-setup-sub {{
-    font-size: 0.87rem;
-    color: {TEXT2};
-    line-height: 1.65;
-    margin-bottom: 1.6rem;
-}}
-.lf-steps {{
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 0.5rem;
-    margin-bottom: 1.3rem;
-}}
-.lf-step {{
-    background: {BG};
-    border: 1px solid {BORDER};
-    border-radius: 10px;
-    padding: 0.7rem 0.4rem;
-    text-align: center;
-}}
-.lf-step-n {{
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.9rem;
-    font-weight: 700;
-    color: {ACCENT};
-}}
-.lf-step-t {{
-    font-size: 0.66rem;
-    color: {TEXT2};
-    margin-top: 0.25rem;
-    line-height: 1.35;
-}}
-.lf-tip {{
-    background: rgba(245,158,11,0.06);
-    border-left: 3px solid #f59e0b;
-    border-radius: 0 8px 8px 0;
-    padding: 0.55rem 0.85rem;
-    font-size: 0.77rem;
-    color: #fbbf24;
-    margin-bottom: 1.4rem;
-}}
-.lf-cta-btn {{
-    display: block;
-    text-align: center;
-    background: linear-gradient(135deg, {ACCENT}, {ACCENT2});
-    color: #fff !important;
-    font-family: 'Outfit', sans-serif;
-    font-weight: 700;
-    font-size: 0.92rem;
-    padding: 0.85rem 2rem;
-    border-radius: 12px;
-    text-decoration: none !important;
-    box-shadow: 0 4px 18px rgba(59,130,246,0.3);
-    letter-spacing: 0.01em;
-    margin-bottom: 0.5rem;
-    transition: all 0.15s;
-}}
-.lf-cta-hint {{
-    font-size: 0.72rem;
-    color: {TEXT3};
-    text-align: center;
-    margin-bottom: 1.2rem;
-}}
-.lf-privacy {{
-    background: rgba(59,130,246,0.05);
-    border: 1px solid rgba(59,130,246,0.12);
-    border-radius: 10px;
-    padding: 0.65rem 0.85rem;
-    font-size: 0.77rem;
-    color: {TEXT3};
-    line-height: 1.55;
-    margin-top: 0.8rem;
-}}
-.lf-unlock-label {{
-    font-size: 0.75rem;
-    font-weight: 700;
-    color: {TEXT2};
-    margin: 1.1rem 0 0.5rem;
-}}
-.lf-unlock-pills {{
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.32rem;
-}}
-.lf-unlock-pill {{
-    background: {BG};
-    border: 1px solid {BORDER};
-    border-radius: 100px;
-    padding: 0.22rem 0.65rem;
-    font-size: 0.68rem;
-    color: {TEXT2};
-}}
-</style>
-""", unsafe_allow_html=True)
 
-# ═══════════════════════════════════════════════════════════
-# API KEYS
-# ═══════════════════════════════════════════════════════════
-builtin_keys = []
-try:
-    if "GOOGLE_API_KEYS" in st.secrets:
-        builtin_keys = list(st.secrets["GOOGLE_API_KEYS"])
-except Exception:
-    pass
+/* Tool grid */
+.tool-btn-row{{display:flex;gap:0.6rem;flex-wrap:wrap;margin-bottom:0.6rem}}
 
-def get_keys():
-    return st.session_state.user_api_keys + builtin_keys
+/* Gradient text utility */
+.grad-text{{
+  background:linear-gradient(135deg,{ACCENT},{ACCENT2});
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;
+}}
 
-def has_key():
-    return len(st.session_state.user_api_keys) > 0
+/* Divider with text */
+.lf-divider{{
+  display:flex;align-items:center;gap:1rem;margin:1.5rem 0;
+  color:{TEXT3};font-size:0.72rem;font-family:'JetBrains Mono',monospace;
+  letter-spacing:0.1em;text-transform:uppercase;
+}}
+.lf-divider::before,.lf-divider::after{{
+  content:'';flex:1;height:1px;background:{BORDER};
+}}
 
-def validate_key(key):
+/* Quiz option highlight */
+.quiz-correct{{
+  background:rgba(6,214,160,0.08)!important;
+  border-color:{ACCENT3}!important;color:{ACCENT3}!important;
+}}
+.quiz-wrong{{
+  background:rgba(239,68,68,0.08)!important;
+  border-color:#ef4444!important;color:#ef4444!important;
+}}
+
+/* Feynman score */
+.feynman-card{{
+  background:linear-gradient(135deg,{CARD},{CARD2});
+  border:1px solid {BORDER};border-radius:16px;padding:1.5rem;
+  margin-top:0.75rem;
+}}
+</style>""", unsafe_allow_html=True)
+
+# ═══════════════════════════════════════════════════════════════════════════
+# FILE READER
+# ═══════════════════════════════════════════════════════════════════════════
+def read_file(f) -> str:
+    import io
+    name = f.name.lower()
     try:
-        genai.configure(api_key=key)
-        r = genai.GenerativeModel("models/gemini-2.5-flash").generate_content(
-            "Say OK", generation_config={"max_output_tokens": 5})
-        return bool(r and r.text)
-    except Exception:
-        return False
+        if name.endswith(".pdf"):
+            if not PDF_OK:
+                return "Install PyPDF2: pip install PyPDF2"
+            reader = PyPDF2.PdfReader(io.BytesIO(f.read()))
+            return "\n".join(p.extract_text() or "" for p in reader.pages)
+        elif name.endswith(".docx"):
+            if not DOCX_OK:
+                return "Install python-docx: pip install python-docx"
+            doc = Document(io.BytesIO(f.read()))
+            return "\n".join(p.text for p in doc.paragraphs if p.text.strip())
+        elif name.endswith(".txt"):
+            return f.read().decode("utf-8", errors="ignore")
+    except Exception as e:
+        return f"Error: {e}"
+    return "Unsupported file type."
 
-def ai(prompt, temp=0.4):
-    keys = get_keys()
-    if not keys:
-        return "NO_KEYS"
-    for key in keys:
-        try:
-            genai.configure(api_key=key)
-            r = genai.GenerativeModel("models/gemini-2.5-flash").generate_content(
-                prompt, generation_config={"temperature": temp, "max_output_tokens": 2000})
-            if r and r.text:
-                return r.text.strip()
-        except Exception:
-            time.sleep(0.5)
-    return "QUOTA"
-
-def quota_ui():
-    st.error("API quota exhausted. Add a new key to continue.")
-    nk = st.text_input("New API key:", type="password", placeholder="AIzaSy...", key=f"qk_{time.time():.0f}")
-    if st.button("Add Key & Retry", type="primary"):
-        if nk.strip() and nk.strip() not in st.session_state.user_api_keys:
-            st.session_state.user_api_keys.append(nk.strip())
-            st.rerun()
-
-# ═══════════════════════════════════════════════════════════
-# FILE READERS
-# ═══════════════════════════════════════════════════════════
-def read_pdf(f):
-    return "\n".join(p.extract_text() for p in PyPDF2.PdfReader(f).pages if p.extract_text())
-
-def read_docx(f):
-    return "\n".join(p.text for p in Document(f).paragraphs if p.text.strip())
-
-def read_txt(f):
-    return f.read().decode("utf-8", errors="ignore")
-
-# ═══════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════════
 # PROMPTS
-# ═══════════════════════════════════════════════════════════
-PROMPTS = {
-    "Notes":      "Create structured academic notes with clear H2 headings and bullet points. Max 500 words. No preamble.\n",
-    "Flashcards": "Generate exactly 5 flashcards.\nFormat strictly:\nFlashcard 1\nQuestion: [question]\nAnswer: [answer]\n\nFlashcard 2\nQuestion: [question]\nAnswer: [answer]\n(continue for all 5)\n",
-    "Quiz":       "Generate exactly 5 multiple choice questions.\nFormat strictly:\nQuestion 1: [question text]\nA. [option]\nB. [option]\nC. [option]\nD. [option]\nCorrect Answer: A\n\nQuestion 2: ...\n",
-    "Reflection": "Generate 5 deep reflection questions. Numbered list. No preamble.\n",
-    "Study Plan": "Create a 5-step study plan with clear timelines. Numbered. Actionable.\n",
-    "Key Concepts":"List 7 key concepts. Format: **Concept Name** — one-line definition. Why it matters: one sentence.\n",
-    "Exam Mode":  "Create a full exam paper:\nSection A: 3 MCQ (mark correct answer)\nSection B: 2 Fill in the blanks (provide answers)\nSection C: 2 Short answer (provide model answers)\n",
-    "TL;DR":      "Summarise in exactly 5 bullet points. Max 15 words each. Exam-focused. No preamble.\n",
-    "Feynman":    "Evaluate this student explanation:\n- Correct points (list)\n- Missing/wrong (list)\n- Score: X/10\n- Improvement tips\n",
-    "Socratic":   "Ask ONE deep Socratic question about this topic. Not factual recall. Challenge assumptions. One sentence.\n",
-    "Mind Map":   "Create a text mind map:\nCentral Topic: [topic]\n  Branch 1: [name]\n    - [sub-point]\n    - [sub-point]\n  Branch 2: ...\n(5 branches total)\n",
-    "Mnemonics":  "Create 3 memorable mnemonics or acronyms for key concepts in this topic. Explain each.\n",
-    "ELI5":       "Explain this topic like I am 10 years old. Simple words, fun analogies, max 200 words.\n",
+# ═══════════════════════════════════════════════════════════════════════════
+TEMPLATES = {
+    "Notes":
+        "Create structured, comprehensive academic notes. Use ## for main headings, ### for subheadings, "
+        "bullet points for details. Include key definitions, important facts, and exam tips. Max 600 words. Start directly.\n",
+    "TL;DR":
+        "Summarise in exactly 5 bullet points. Each bullet max 15 words. Exam-focused, punchy. Start with '•'. No preamble.\n",
+    "Key Concepts":
+        "List exactly 7 key concepts.\nFormat each as:\n**[Concept Name]** — [one-line definition]\n→ Why it matters: [one sentence]\n\nNo preamble.\n",
+    "Mnemonics":
+        "Create 3 powerful mnemonics or acronyms that make key concepts unforgettable. "
+        "For each: give the mnemonic, explain what each letter stands for, and show how to use it. Be creative and memorable.\n",
+    "Mind Map":
+        "Create a detailed text mind map:\n🎯 Central Topic: [TOPIC]\n\n"
+        "  📌 Branch 1: [Name]\n    ├── [sub-point]\n    ├── [sub-point]\n    └── [sub-point]\n\n"
+        "  📌 Branch 2: [Name]\n    ├── ...\n\n(Create 5 branches total, 3 sub-points each)\n",
+    "ELI5":
+        "Explain this topic like I'm 10 years old. Use a fun analogy or story. "
+        "Short sentences. Zero jargon. Make it memorable. Max 200 words.\n",
+    "Study Plan":
+        "Create a detailed 7-day study plan for mastering this topic. "
+        "For each day: Day label, specific tasks (2-3 bullets), time estimate, and what to focus on. "
+        "Include review sessions and practice tests. Format cleanly.\n",
+    "Flashcards":
+        "Generate exactly 5 high-quality flashcards for exam preparation.\n"
+        "Use this format strictly:\n\nFlashcard 1\nQuestion: [clear, specific question]\nAnswer: [concise, complete answer]\n\n"
+        "Flashcard 2\nQuestion: ...\nAnswer: ...\n\n(continue for all 5)\n",
+    "Quiz":
+        "Generate exactly 5 multiple choice questions at exam standard.\n"
+        "Format strictly:\n\nQuestion 1: [question text]\nA. [option]\nB. [option]\nC. [option]\nD. [option]\nCorrect Answer: [letter]\n\n"
+        "Question 2: ...\n\n(All 5 questions, mark correct answer clearly)\n",
+    "Reflection":
+        "Generate 5 deep critical thinking questions that go beyond recall. "
+        "Questions should challenge assumptions, explore implications, or connect to real world. "
+        "Numbered list. Each question should spark meaningful reflection.\n",
+    "Feynman":
+        "You are a strict but fair professor evaluating a student's explanation.\n"
+        "Provide:\n✅ What they got right (bullet list)\n❌ Gaps or misconceptions (bullet list)\n"
+        "📊 Score: [X]/10 with brief justification\n💡 3 specific tips to improve their understanding\n",
+    "Socratic":
+        "Ask ONE powerful Socratic question about this topic. "
+        "The question should challenge a common assumption, reveal hidden complexity, "
+        "or make the student think deeply. One sentence. No preamble.\n",
+    "Exam Mode":
+        "Create a full professional exam paper:\n\n"
+        "**SECTION A — Multiple Choice** (3 questions, mark correct answer)\n\n"
+        "**SECTION B — Fill in the Blanks** (3 sentences with ___ blanks, provide answer key)\n\n"
+        "**SECTION C — Short Answer** (2 questions, provide model answers)\n\n"
+        "**SECTION D — Essay Question** (1 question with marking criteria)\n",
 }
 
-def build_prompt(text, difficulty, persona, fmt):
-    trimmed = len(text) > 3500
-    t = text[:3500]
-    base = f"Topic/Content:\n{t}\n\nDifficulty: {difficulty}\nPersona: {persona}\n\nIMPORTANT: Output ONLY the requested format. No preamble, no intro phrases, no 'Sure!' or 'Here are...'. Start directly.\n\n"
-    return base + PROMPTS.get(fmt, PROMPTS["Notes"]), trimmed
+def build_prompt(content: str, fmt: str) -> str:
+    level   = st.session_state.level
+    persona = st.session_state.persona
+    base = (
+        f"Topic/Content:\n{content[:3800]}\n\n"
+        f"Difficulty Level: {level}\n"
+        f"Teaching Persona: {persona}\n\n"
+        f"CRITICAL: Output ONLY the requested format. "
+        f"Do NOT start with 'Sure!', 'Here are', 'Of course' or any preamble. "
+        f"Start directly with the content.\n\n"
+    )
+    return base + TEMPLATES.get(fmt, TEMPLATES["Notes"])
 
-def short_heading(txt):
-    r = ai(f"Create a short 5-word heading for this topic. No quotes, no punctuation.\nTopic: {txt}", 0.2)
-    return r if r not in ("QUOTA","NO_KEYS") and len(r) < 60 else "Study Notes"
-
-def run_gen(fmt, content, manual, difficulty, persona, temp, mode="output"):
-    if not content:
-        st.warning("Enter a topic or upload a file first.")
-        return False
-    p, trimmed = build_prompt(content, difficulty, persona, fmt)
-    if trimmed:
-        st.caption("Content trimmed to 3500 characters for processing.")
-    with st.spinner(f"Generating {fmt}..."):
-        r = ai(p, temp)
-    if r in ("QUOTA", "NO_KEYS"):
-        quota_ui(); return False
-    if mode == "notes":
-        st.session_state.notes_content = r
-        st.session_state.notes_heading = short_heading(manual or "this topic")
-        st.session_state.generated_output = None
-        st.session_state.generated_heading = None
-        st.session_state.quiz_score = None
-    else:
-        st.session_state.generated_output = r
-        st.session_state.generated_heading = fmt
+def generate(fmt: str, content: str) -> str | None:
+    if not content.strip():
+        st.warning("⚠️ Enter a topic or upload a file first.")
+        return None
+    with st.spinner(f"✨ Generating {fmt}..."):
+        result = ai(build_prompt(content, fmt), st.session_state.creativity)
     st.session_state.history.append({
-        "ts": datetime.datetime.now().strftime("%H:%M · %d %b"),
+        "ts":     datetime.datetime.now().strftime("%H:%M · %d %b"),
         "format": fmt,
-        "topic": (manual or "Uploaded file")[:45],
-        "output": r,
+        "topic":  content[:50],
+        "output": result,
     })
-    return True
+    return result
 
-# ═══════════════════════════════════════════════════════════
-# SIDEBAR (MOVED TO TOP SO IT ALWAYS LOADS)
-# ═══════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════════
+# SIDEBAR
+# ═══════════════════════════════════════════════════════════════════════════
 with st.sidebar:
-
-    # ── Logo + theme toggle ──
+    # Logo + theme toggle
     lc, tc = st.columns([5, 1])
     with lc:
         st.markdown(f"""
-<div style="padding:0.2rem 0 0.8rem;">
-  <div style="font-size:1.02rem;font-weight:800;color:{TEXT};font-family:'Outfit',sans-serif;letter-spacing:-0.01em;">
-    🧠 LearnFlow <span style="color:{ACCENT};">AI</span>
+<div style="padding:0.3rem 0 1rem">
+  <div style="font-family:'Syne',sans-serif;font-size:1.1rem;font-weight:800;color:{TEXT};letter-spacing:-0.02em;display:flex;align-items:center;gap:0.5rem">
+    🧠 <span>LearnFlow <span style="color:{ACCENT}">AI</span></span>
   </div>
-  <div style="font-family:'JetBrains Mono',monospace;font-size:0.56rem;color:{TEXT3};letter-spacing:0.17em;margin-top:0.2rem;text-transform:uppercase;">
-    Study Companion
+  <div style="font-family:'JetBrains Mono',monospace;font-size:0.52rem;color:{TEXT3};letter-spacing:0.2em;margin-top:0.25rem;text-transform:uppercase">
+    Study Companion · Groq
   </div>
 </div>""", unsafe_allow_html=True)
     with tc:
-        if st.button("🌙" if dark else "☀️", help="Toggle theme", use_container_width=True):
+        if st.button("🌙" if dark else "☀️", help="Toggle theme", key="theme_btn"):
             st.session_state.dark_mode = not dark
             st.rerun()
 
-    st.markdown(f'<div style="border-top:1px solid {BORDER};margin-bottom:0.2rem;"></div>', unsafe_allow_html=True)
+    st.markdown(f'<div style="height:1px;background:{BORDER};margin-bottom:0.5rem"></div>', unsafe_allow_html=True)
 
-    # ── Settings ──
-    st.markdown('<span class="sb-section">Settings</span>', unsafe_allow_html=True)
-    difficulty = st.selectbox("Level", ["Beginner", "Intermediate", "Advanced"],
-                              label_visibility="collapsed")
-    persona = st.selectbox("Persona", [
-        "University Professor", "School Teacher", "Child-Friendly Tutor",
-        "Scientist", "Exam Coach", "Motivational Mentor",
-    ], label_visibility="collapsed")
-    st.markdown(f'<div style="font-size:0.75rem;color:{TEXT2};margin:0.5rem 0 0.1rem;font-weight:500;">Creativity</div>', unsafe_allow_html=True)
-    creativity = st.slider("Creativity", 0.1, 1.0, 0.4, 0.05, label_visibility="collapsed")
+    # ── API Status ──
+    st.markdown('<span class="sb-label">⚡ API Status</span>', unsafe_allow_html=True)
+    try:
+        _ = st.secrets["GROQ_API_KEY"]
+        st.markdown(f'<span class="lf-dot"></span><span style="font-size:0.82rem;color:{ACCENT3};font-weight:600">Groq connected</span>', unsafe_allow_html=True)
+        st.markdown(f'<div style="font-size:0.7rem;color:{TEXT3};margin-top:0.2rem;padding-left:1rem">Llama 3.3 · 70B</div>', unsafe_allow_html=True)
+    except Exception:
+        st.error("Add GROQ_API_KEY to .streamlit/secrets.toml")
+
+    # ── Learning Settings ──
+    st.markdown('<span class="sb-label">⚙️ Settings</span>', unsafe_allow_html=True)
+
+    LEVELS   = ["Beginner", "Intermediate", "Advanced", "Expert"]
+    PERSONAS = ["University Professor", "School Teacher", "Child-Friendly Tutor",
+                "Scientist", "Exam Coach", "Motivational Mentor"]
+    st.session_state.level   = st.selectbox("Level",   LEVELS,   index=LEVELS.index(st.session_state.level),     label_visibility="collapsed")
+    st.session_state.persona = st.selectbox("Persona", PERSONAS, index=PERSONAS.index(st.session_state.persona), label_visibility="collapsed")
+
+    st.markdown(f'<div style="font-size:0.73rem;color:{TEXT2};margin:0.6rem 0 0.2rem;font-weight:500">🎨 Creativity — {st.session_state.creativity:.2f}</div>', unsafe_allow_html=True)
+    st.session_state.creativity = st.slider("cr", 0.1, 1.0, st.session_state.creativity, 0.05, label_visibility="collapsed")
 
     # ── Pomodoro ──
-    st.markdown('<span class="sb-section">Pomodoro Timer</span>', unsafe_allow_html=True)
-
+    st.markdown('<span class="sb-label">⏱ Pomodoro</span>', unsafe_allow_html=True)
     pc1, pc2 = st.columns([3, 1])
     with pc1:
-        pmin = st.selectbox("Minutes", [25, 5, 10, 15, 30, 45, 60],
-                            label_visibility="collapsed")
+        pmin = st.selectbox("mins", [25, 5, 10, 15, 20, 30, 45, 60], label_visibility="collapsed")
     with pc2:
-        start_stop = st.button("▶" if not st.session_state.pomo_running else "■",
-                               use_container_width=True, key="pomo_btn")
-        if start_stop:
+        pomo_icon = "■" if st.session_state.pomo_running else "▶"
+        if st.button(pomo_icon, use_container_width=True, key="pomo_btn"):
             if not st.session_state.pomo_running:
                 st.session_state.pomo_start    = time.time()
                 st.session_state.pomo_duration = pmin * 60
-                st.session_state.pomo_running   = True
+                st.session_state.pomo_running  = True
             else:
-                st.session_state.pomo_running   = False
+                st.session_state.pomo_running  = False
                 st.session_state.pomo_start    = None
             st.rerun()
 
     if st.session_state.pomo_running and st.session_state.pomo_start:
         elapsed   = time.time() - st.session_state.pomo_start
-        remaining = max(0, st.session_state.pomo_duration - elapsed)
-        if remaining > 0:
-            m, s = int(remaining // 60), int(remaining % 60)
-            pct  = 1 - (remaining / st.session_state.pomo_duration)
-            st.markdown(f'<div class="lf-pomo-label">Focus time remaining</div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="lf-pomo">{m:02d}:{s:02d}</div>', unsafe_allow_html=True)
-            st.progress(pct)
-        else:
+        remaining = max(0.0, st.session_state.pomo_duration - elapsed)
+        m, s      = int(remaining // 60), int(remaining % 60)
+        st.markdown('<div class="lf-pomo-label">focus time remaining</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="lf-pomo">{m:02d}:{s:02d}</div>', unsafe_allow_html=True)
+        st.progress(1.0 - remaining / max(st.session_state.pomo_duration, 1))
+        if remaining == 0:
             st.session_state.pomo_running = False
             st.session_state.pomo_start   = None
-            st.success("Break time! Great focus session.")
-            if st.button("Restart Timer", use_container_width=True):
-                st.session_state.pomo_start    = time.time()
-                st.session_state.pomo_duration = pmin * 60
-                st.session_state.pomo_running   = True
-                st.rerun()
-    elif not st.session_state.pomo_running:
-        st.markdown(f'<div style="text-align:center;font-size:0.75rem;color:{TEXT3};padding:0.3rem 0;">Press ▶ to start focus session</div>', unsafe_allow_html=True)
-
-    # ── API Keys ──
-    st.markdown('<span class="sb-section">API Keys</span>', unsafe_allow_html=True)
-    uk = len(st.session_state.user_api_keys)
-    st.markdown(f'<span class="lf-key-dot"></span><span style="font-size:0.82rem;color:{GREEN};font-weight:600;">{uk} key active</span>', unsafe_allow_html=True)
-
-    with st.expander("Manage Keys"):
-        st.caption("Get a free key: [aistudio.google.com](https://aistudio.google.com/app/apikey)")
-        new_key = st.text_input("Add key:", type="password",
-                                placeholder="AIzaSy...", key="sb_new_key",
-                                label_visibility="collapsed")
-        if st.button("Add Key", use_container_width=True, key="sb_add_key"):
-            k = new_key.strip()
-            if k and k not in st.session_state.user_api_keys:
-                st.session_state.user_api_keys.append(k)
-                st.success("Key added!")
-                st.rerun()
-            elif k in st.session_state.user_api_keys:
-                st.warning("Key already added.")
-        if st.session_state.user_api_keys:
-            st.markdown(f'<div style="font-size:0.75rem;color:{TEXT3};margin-top:0.4rem;">{uk} key(s) stored</div>', unsafe_allow_html=True)
-            if st.button("Remove All Keys", use_container_width=True, key="sb_rm_keys"):
-                st.session_state.user_api_keys = []
-                st.rerun()
+            st.balloons()
+            st.success("🎉 Session complete! Time for a break.")
+    else:
+        m_init, s_init = divmod(pmin * 60, 60)
+        st.markdown(f'<div class="lf-pomo">{m_init:02d}:{s_init:02d}</div>', unsafe_allow_html=True)
 
     # ── Session Stats ──
-    st.markdown('<span class="sb-section">Session</span>', unsafe_allow_html=True)
+    st.markdown('<span class="sb-label">📊 Session</span>', unsafe_allow_html=True)
     s1, s2 = st.columns(2)
     with s1: st.metric("Generated", len(st.session_state.history))
-    with s2: st.metric("Notes", 1 if st.session_state.notes_content else 0)
+    with s2: st.metric("Notes",     1 if st.session_state.notes else 0)
 
     st.markdown("<br>", unsafe_allow_html=True)
-    if st.button("Reset Session", use_container_width=True, key="sb_reset"):
-        saved_keys = st.session_state.user_api_keys
-        saved_mode = st.session_state.dark_mode
+
+    # History quick access
+    if st.session_state.history:
+        with st.expander(f"📜 History ({len(st.session_state.history)})"):
+            for item in reversed(st.session_state.history[-5:]):
+                st.markdown(f'<div style="font-size:0.75rem;color:{TEXT3};padding:0.25rem 0;border-bottom:1px solid {BORDER}">'
+                            f'<span style="color:{ACCENT}">{item["format"]}</span> · {item["ts"]}</div>',
+                            unsafe_allow_html=True)
+
+    if st.button("🗑 Reset Session", use_container_width=True, key="reset_btn"):
+        dark_saved = st.session_state.dark_mode
         for k, v in DEFAULTS.items():
             st.session_state[k] = v
-        st.session_state.user_api_keys = saved_keys
-        st.session_state.dark_mode     = saved_mode
+        st.session_state.dark_mode = dark_saved
         st.rerun()
 
-# ═══════════════════════════════════════════════════════════
-# GATE / SETUP SCREEN
-# ═══════════════════════════════════════════════════════════
-def show_setup():
-    # Override background, do NOT hide sidebar
-    st.markdown(f"""
-<style>
-html, body, [data-testid="stApp"],
-[data-testid="stAppViewContainer"] > .main,
-.block-container {{
-    background: {BG} !important;
-}}
-</style>""", unsafe_allow_html=True)
-
-    # Render setup UI exactly as originally designed
-    st.markdown(f"""
-<div class="lf-setup-wrap">
-  <div class="lf-setup-logo">
-    <div class="lf-setup-logo-icon">🧠</div>
-    <div class="lf-setup-logo-name">LearnFlow <span>AI</span></div>
-    <div class="lf-setup-logo-sub">Study Companion</div>
-  </div>
-  <div class="lf-setup-card">
-    <div><span class="lf-setup-badge">✦ Free · No Credit Card · 2 Minutes</span></div>
-    <div class="lf-setup-title">Connect your free API key</div>
-    <div class="lf-setup-sub">
-      LearnFlow AI is powered by Google Gemini — completely free.<br>
-      Get your key in 2 minutes and unlock 12 AI study tools instantly.
-    </div>
-    <div class="lf-steps">
-      <div class="lf-step"><div class="lf-step-n">01</div><div class="lf-step-t">Open Google AI Studio</div></div>
-      <div class="lf-step"><div class="lf-step-n">02</div><div class="lf-step-t">Sign in with Google</div></div>
-      <div class="lf-step"><div class="lf-step-n">03</div><div class="lf-step-t">Click Create API Key</div></div>
-      <div class="lf-step"><div class="lf-step-n">04</div><div class="lf-step-t">Paste it below</div></div>
-    </div>
-    <div class="lf-tip">⚡ Keys look like: <strong>AIzaSyA1B2C3...</strong> &nbsp;(39 characters, starts with AIza)</div>
-    <a class="lf-cta-btn" href="https://aistudio.google.com/app/apikey" target="_blank">🔑 Get My Free API Key →</a>
-    <div class="lf-cta-hint">Opens Google AI Studio in a new tab</div>
-  </div>
-</div>
-""", unsafe_allow_html=True)
-
-    _, mc, _ = st.columns([1, 2, 1])
-    with mc:
-        key_in = st.text_input("Paste your API key here:", type="password",
-                               placeholder="AIzaSy...", key="setup_key_input")
-
-        if st.button("Validate & Start Learning", type="primary", use_container_width=True):
-            k = key_in.strip()
-            if not k:
-                st.warning("Paste your API key above.")
-            elif not k.startswith("AIza"):
-                st.error("Invalid key — Gemini keys always start with **AIza**")
-            elif len(k) < 30:
-                st.error("Key is too short — copy the full key from Google AI Studio.")
-            else:
-                with st.spinner("Validating your key with Google..."):
-                    ok = validate_key(k)
-                if ok:
-                    st.session_state.user_api_keys = [k]
-                    st.balloons()
-                    st.success("Key validated! Welcome to LearnFlow AI")
-                    time.sleep(1.2)
-                    st.rerun()
-                else:
-                    st.error("Google rejected this key. Try copying it again from AI Studio.")
-
-        st.markdown(f"""
-<div class="lf-privacy">
-  🔒 <strong>Privacy:</strong> Your key is stored only in this browser session.
-  It is never sent to any server and is deleted automatically when you close this tab.
-</div>
-<div class="lf-unlock-label">Everything you unlock:</div>
-<div class="lf-unlock-pills">
-  <span class="lf-unlock-pill">📝 Smart Notes</span>
-  <span class="lf-unlock-pill">🎴 Flashcards</span>
-  <span class="lf-unlock-pill">❓ AI Quiz</span>
-  <span class="lf-unlock-pill">🧪 Feynman Check</span>
-  <span class="lf-unlock-pill">🤖 Socratic Tutor</span>
-  <span class="lf-unlock-pill">🎓 Exam Mode</span>
-  <span class="lf-unlock-pill">🧠 Mind Map</span>
-  <span class="lf-unlock-pill">💡 Mnemonics</span>
-  <span class="lf-unlock-pill">⚡ TL;DR</span>
-  <span class="lf-unlock-pill">👶 ELI5</span>
-  <span class="lf-unlock-pill">📅 Study Plan</span>
-  <span class="lf-unlock-pill">⏱ Pomodoro</span>
-  <span class="lf-unlock-pill">🌙 Dark / Light Mode</span>
-</div>
-""", unsafe_allow_html=True)
-
-if not has_key():
-    show_setup()
-    st.stop()
-
-# ═══════════════════════════════════════════════════════════
-# MAIN — HERO
-# ═══════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════════
+# HERO
+# ═══════════════════════════════════════════════════════════════════════════
 st.markdown(f"""
 <div class="lf-hero">
-  <div class="lf-eyebrow">✦ Powered by Google Gemini 2.5 Flash</div>
-  <div class="lf-title">Learn Smarter.<br>Not Harder.</div>
-  <div class="lf-subtitle">Transform any topic or document into notes, flashcards, quizzes, mind maps and more — in seconds.</div>
+  <div class="lf-eyebrow">Powered by Groq · Llama 3.3 70B · Ultra-fast inference</div>
+  <div class="lf-title">Learn <span>Smarter.</span><br>Not Harder.</div>
+  <div class="lf-subtitle">
+    Transform any topic, notes, or document into structured study content —
+    flashcards, quizzes, mind maps, and a personal AI tutor — in seconds.
+  </div>
   <div class="lf-stats">
-    <div><div class="lf-stat-val">12+</div><div class="lf-stat-lbl">AI Features</div></div>
-    <div><div class="lf-stat-val">∞</div><div class="lf-stat-lbl">Topics</div></div>
-    <div><div class="lf-stat-val">Free</div><div class="lf-stat-lbl">Forever</div></div>
+    <div>
+      <div class="lf-stat-val">12+</div>
+      <div class="lf-stat-lbl">AI Study Tools</div>
+    </div>
+    <div>
+      <div class="lf-stat-val">∞</div>
+      <div class="lf-stat-lbl">Topics</div>
+    </div>
+    <div>
+      <div class="lf-stat-val">Free</div>
+      <div class="lf-stat-lbl">Forever</div>
+    </div>
+    <div>
+      <div class="lf-stat-val">&lt;2s</div>
+      <div class="lf-stat-lbl">Response Time</div>
+    </div>
   </div>
 </div>
 <div class="lf-pills">
@@ -1155,21 +835,19 @@ st.markdown(f"""
   <span class="lf-pill">❓ AI Quiz</span>
   <span class="lf-pill">🧪 Feynman Check</span>
   <span class="lf-pill">🤖 Socratic Tutor</span>
-  <span class="lf-pill">📅 Study Plan</span>
+  <span class="lf-pill">📅 7-Day Study Plan</span>
   <span class="lf-pill">🎓 Exam Mode</span>
   <span class="lf-pill">🧠 Mind Map</span>
   <span class="lf-pill">💡 Mnemonics</span>
   <span class="lf-pill">⚡ TL;DR</span>
   <span class="lf-pill">👶 ELI5</span>
-  <span class="lf-pill">⏱ Pomodoro</span>
-</div>
-""", unsafe_allow_html=True)
+  <span class="lf-pill">🔑 Key Concepts</span>
+</div>""", unsafe_allow_html=True)
 
-# ═══════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════════
 # STEP 1 — INPUT
-# ═══════════════════════════════════════════════════════════
-st.markdown("""
-<div class="lf-section">
+# ═══════════════════════════════════════════════════════════════════════════
+st.markdown("""<div class="lf-section">
   <div class="lf-section-num">1</div>
   <div>
     <div class="lf-section-title">Enter Topic or Upload File</div>
@@ -1177,185 +855,240 @@ st.markdown("""
   </div>
 </div>""", unsafe_allow_html=True)
 
-uploaded  = st.file_uploader("", type=["pdf","docx","txt"], label_visibility="collapsed")
+uploaded  = st.file_uploader("", type=["pdf", "docx", "txt"], label_visibility="collapsed")
 file_text = ""
-
 if uploaded:
-    with st.spinner(f"Reading {uploaded.name}..."):
-        try:
-            ft = uploaded.type
-            if   "pdf"      in ft: file_text = read_pdf(uploaded)
-            elif "document" in ft: file_text = read_docx(uploaded)
-            else:                  file_text = read_txt(uploaded)
-            st.success(f"**{uploaded.name}** loaded — {len(file_text):,} characters")
-        except Exception as e:
-            st.error(f"Could not read file: {e}")
+    with st.spinner(f"📂 Reading {uploaded.name}..."):
+        file_text = read_file(uploaded)
+    if file_text.startswith("Error") or file_text.startswith("Install"):
+        st.error(file_text)
+        file_text = ""
+    else:
+        wc = len(file_text.split())
+        st.success(f"✅ **{uploaded.name}** — {len(file_text):,} characters · ~{wc:,} words")
 
-manual = st.text_area("", height=100, label_visibility="collapsed",
-    placeholder="e.g. Photosynthesis  ·  Newton's Laws  ·  French Revolution  ·  Machine Learning  ·  Thermodynamics...")
+topic_input = st.text_area(
+    "", height=110, label_visibility="collapsed",
+    placeholder="e.g.  Photosynthesis  ·  Newton's Laws of Motion  ·  French Revolution  ·  Machine Learning  ·  Organic Chemistry...",
+)
 
-# Combine
-if file_text and manual.strip():
-    content = f"User instruction: {manual.strip()}\n\nDocument content:\n{file_text}"
+if file_text and topic_input.strip():
+    content = f"User instruction: {topic_input.strip()}\n\nDocument content:\n{file_text}"
 elif file_text:
     content = file_text
 else:
-    content = manual.strip()
+    content = topic_input.strip()
 
-G = dict(content=content, manual=manual, difficulty=difficulty,
-         persona=persona, temp=creativity)
-
-# ═══════════════════════════════════════════════════════════
-# STEP 2 — LEARN
-# ═══════════════════════════════════════════════════════════
-st.markdown("""
-<div class="lf-section">
+# ═══════════════════════════════════════════════════════════════════════════
+# STEP 2 — READ & LEARN
+# ═══════════════════════════════════════════════════════════════════════════
+st.markdown("""<div class="lf-section">
   <div class="lf-section-num">2</div>
   <div>
     <div class="lf-section-title">Read &amp; Learn</div>
-    <div class="lf-section-sub">Generate notes first, then explore summaries, concepts, and memory aids</div>
+    <div class="lf-section-sub">Start with Notes — then dive into summaries, concepts, memory aids, and study plans</div>
   </div>
 </div>""", unsafe_allow_html=True)
 
-r1c1, r1c2, r1c3, r1c4 = st.columns(4)
-with r1c1:
-    if st.button("📝 Notes", use_container_width=True, type="primary"):
-        if run_gen("Notes", **G, mode="notes"): st.rerun()
-with r1c2:
-    if st.button("⚡ TL;DR", use_container_width=True):
-        if content:
-            p, _ = build_prompt(content, difficulty, persona, "TL;DR")
-            with st.spinner("Summarising..."): r = ai(p, 0.3)
-            if r in ("QUOTA","NO_KEYS"): quota_ui()
-            else: st.session_state.tldr = r
-        else: st.warning("Enter a topic first.")
-with r1c3:
-    if st.button("🔑 Key Concepts", use_container_width=True):
-        if run_gen("Key Concepts", **G): st.rerun()
-with r1c4:
-    if st.button("💡 Mnemonics", use_container_width=True):
-        if run_gen("Mnemonics", **G): st.rerun()
+# Row 1
+c1, c2, c3, c4 = st.columns(4)
+with c1:
+    if st.button("📝 Notes", use_container_width=True, type="primary", key="btn_notes"):
+        result = generate("Notes", content)
+        if result:
+            st.session_state.notes         = result
+            heading = ai(f"Create a 5-word title for this topic (no quotes, no punctuation): {topic_input or content[:100]}", 0.2)
+            st.session_state.notes_heading = heading if len(heading) < 70 else "Smart Notes"
+            st.rerun()
+with c2:
+    if st.button("⚡ TL;DR", use_container_width=True, key="btn_tldr"):
+        result = generate("TL;DR", content)
+        if result:
+            st.session_state.tldr = result
+            st.rerun()
+with c3:
+    if st.button("🔑 Key Concepts", use_container_width=True, key="btn_kc"):
+        result = generate("Key Concepts", content)
+        if result:
+            st.session_state.out_content = result
+            st.session_state.out_label   = "Key Concepts"
+            st.rerun()
+with c4:
+    if st.button("💡 Mnemonics", use_container_width=True, key="btn_mn"):
+        result = generate("Mnemonics", content)
+        if result:
+            st.session_state.out_content = result
+            st.session_state.out_label   = "Mnemonics"
+            st.rerun()
 
-r2c1, r2c2, r2c3 = st.columns(3)
-with r2c1:
-    if st.button("🧠 Mind Map", use_container_width=True):
-        if run_gen("Mind Map", **G): st.rerun()
-with r2c2:
-    if st.button("👶 ELI5", use_container_width=True):
-        if run_gen("ELI5", **G): st.rerun()
-with r2c3:
-    if st.button("📅 Study Plan", use_container_width=True):
-        if run_gen("Study Plan", **G): st.rerun()
+# Row 2
+c5, c6, c7 = st.columns(3)
+with c5:
+    if st.button("🧠 Mind Map", use_container_width=True, key="btn_mm"):
+        result = generate("Mind Map", content)
+        if result:
+            st.session_state.out_content = result
+            st.session_state.out_label   = "Mind Map"
+            st.rerun()
+with c6:
+    if st.button("👶 ELI5 — Explain Simply", use_container_width=True, key="btn_eli5"):
+        result = generate("ELI5", content)
+        if result:
+            st.session_state.out_content = result
+            st.session_state.out_label   = "ELI5"
+            st.rerun()
+with c7:
+    if st.button("📅 7-Day Study Plan", use_container_width=True, key="btn_sp"):
+        result = generate("Study Plan", content)
+        if result:
+            st.session_state.out_content = result
+            st.session_state.out_label   = "Study Plan"
+            st.rerun()
 
-# Display TL;DR
+# ── Outputs ──
 if st.session_state.tldr:
+    st.markdown(f'<div class="lf-divider">TL;DR Summary</div>', unsafe_allow_html=True)
     st.info(f"**⚡ TL;DR**\n\n{st.session_state.tldr}")
-    if st.button("Clear TL;DR", key="clear_tldr"):
-        st.session_state.tldr = None; st.rerun()
+    if st.button("✕ Clear TL;DR", key="clear_tldr"):
+        st.session_state.tldr = None
+        st.rerun()
 
-# Display Notes
-if st.session_state.notes_content:
-    with st.expander(f"📘 {st.session_state.notes_heading}", expanded=True):
-        st.markdown(st.session_state.notes_content)
-        st.download_button("Download Notes", data=st.session_state.notes_content,
-            file_name=f"notes_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
-            mime="text/plain", key="dl_notes")
+if st.session_state.notes:
+    st.markdown(f'<div class="lf-divider">Smart Notes</div>', unsafe_allow_html=True)
+    with st.expander(f"📘 {st.session_state.notes_heading or 'Smart Notes'}", expanded=True):
+        st.markdown(st.session_state.notes)
+        col_dl, col_clr = st.columns([3, 1])
+        with col_dl:
+            st.download_button(
+                "⬇ Download Notes (.txt)",
+                data=st.session_state.notes,
+                file_name=f"notes_{datetime.datetime.now().strftime('%Y%m%d_%H%M')}.txt",
+                mime="text/plain", key="dl_notes",
+            )
+        with col_clr:
+            if st.button("✕ Clear", key="clr_notes"):
+                st.session_state.notes = None
+                st.rerun()
 
-# Display Step 2 outputs
-S2 = ["Key Concepts","Mnemonics","Mind Map","ELI5","Study Plan"]
-if st.session_state.generated_output and st.session_state.generated_heading in S2:
-    with st.expander(f"📄 {st.session_state.generated_heading}", expanded=True):
-        st.markdown(st.session_state.generated_output)
-        st.download_button("Download", data=st.session_state.generated_output,
-            file_name=f"{st.session_state.generated_heading}.txt",
-            mime="text/plain", key="dl_s2")
+LEARN_LABELS = ["Key Concepts", "Mnemonics", "Mind Map", "ELI5", "Study Plan"]
+if st.session_state.out_content and st.session_state.out_label in LEARN_LABELS:
+    icons = {"Key Concepts":"🔑","Mnemonics":"💡","Mind Map":"🧠","ELI5":"👶","Study Plan":"📅"}
+    icon  = icons.get(st.session_state.out_label, "📄")
+    st.markdown(f'<div class="lf-divider">{st.session_state.out_label}</div>', unsafe_allow_html=True)
+    with st.expander(f"{icon} {st.session_state.out_label}", expanded=True):
+        st.markdown(st.session_state.out_content)
+        st.download_button(
+            f"⬇ Download {st.session_state.out_label}",
+            data=st.session_state.out_content,
+            file_name=f"{st.session_state.out_label.replace(' ','_')}.txt",
+            mime="text/plain", key="dl_learn",
+        )
 
-# ═══════════════════════════════════════════════════════════
-# STEP 3 — TEST (unlocks after notes)
-# ═══════════════════════════════════════════════════════════
-if st.session_state.notes_content:
-    st.markdown("""
-<div class="lf-section">
+# ═══════════════════════════════════════════════════════════════════════════
+# STEP 3 — TEST  (unlocks after notes)
+# ═══════════════════════════════════════════════════════════════════════════
+if st.session_state.notes:
+    st.markdown("""<div class="lf-section">
   <div class="lf-section-num">3</div>
   <div>
     <div class="lf-section-title">Test Your Knowledge</div>
-    <div class="lf-section-sub">Flashcards, quiz, Feynman check, and your personal AI tutor</div>
+    <div class="lf-section-sub">Flashcards, AI quiz, Feynman technique checker, and your personal Socratic tutor</div>
   </div>
 </div>""", unsafe_allow_html=True)
 
     tab1, tab2, tab3, tab4 = st.tabs([
-        "🎴  Flashcards", "❓  Quiz", "🤔  Feynman & Reflect", "🤖  AI Tutor"
+        "🎴  Flashcards",
+        "❓  AI Quiz",
+        "🧪  Feynman & Reflect",
+        "🤖  AI Tutor",
     ])
 
-    # ── FLASHCARDS ──
+    # ── FLASHCARDS ──────────────────────────────────────────────────────────
     with tab1:
-        st.caption("Test yourself before revealing answers — builds stronger memory retention.")
-        if st.button("Generate Flashcards", type="primary", use_container_width=True, key="gen_fc"):
-            run_gen("Flashcards", **G)
+        st.markdown(f'<p style="font-size:0.82rem;color:{TEXT3};margin-bottom:1rem">Test yourself before revealing the answer — spaced repetition builds stronger memory.</p>', unsafe_allow_html=True)
+        if st.button("🎴 Generate Flashcards", type="primary", use_container_width=True, key="gen_fc"):
+            result = generate("Flashcards", content)
+            if result:
+                st.session_state.out_content = result
+                st.session_state.out_label   = "Flashcards"
+                st.session_state.fc_revealed = {}
+                st.rerun()
 
-        if st.session_state.generated_heading == "Flashcards" and st.session_state.generated_output:
-            cards = st.session_state.generated_output.split("Flashcard")
-            idx = 1
+        if st.session_state.out_label == "Flashcards" and st.session_state.out_content:
+            cards = st.session_state.out_content.split("Flashcard")
+            idx   = 1
             for blk in cards:
                 blk = blk.strip()
-                if not blk: continue
+                if not blk:
+                    continue
                 parts = blk.split("Answer:")
-                if len(parts) >= 2:
-                    q = parts[0].replace("Question:","").strip().lstrip("1234567890. \n")
-                    a = parts[1].strip()
-                    rk = f"fc_reveal_{idx}"
-                    if rk not in st.session_state: st.session_state[rk] = False
-                    st.markdown(f"""
-<div class="lf-fc">
+                if len(parts) < 2:
+                    continue
+                q  = parts[0].replace("Question:", "").strip().lstrip("1234567890. \n")
+                a  = parts[1].strip()
+                rk = f"fc_{idx}"
+                if rk not in st.session_state.fc_revealed:
+                    st.session_state.fc_revealed[rk] = False
+
+                st.markdown(f"""<div class="lf-fc">
   <div class="lf-fc-num">Card {idx} of 5</div>
-  <div class="lf-fc-q">{q}</div>
+  <div class="lf-fc-q">💬 {q}</div>
 </div>""", unsafe_allow_html=True)
-                    label = "Hide Answer" if st.session_state[rk] else "Reveal Answer"
+                col_btn, col_sp = st.columns([2, 3])
+                with col_btn:
+                    label = "🙈 Hide Answer" if st.session_state.fc_revealed[rk] else "👁 Reveal Answer"
                     if st.button(label, key=f"fc_btn_{idx}"):
-                        st.session_state[rk] = not st.session_state[rk]
+                        st.session_state.fc_revealed[rk] = not st.session_state.fc_revealed[rk]
                         st.rerun()
-                    if st.session_state[rk]:
-                        st.success(f"**Answer:** {a}")
-                    st.markdown("<br>", unsafe_allow_html=True)
-                    idx += 1
+                if st.session_state.fc_revealed[rk]:
+                    st.success(f"**✅ Answer:** {a}")
+                st.markdown("<br>", unsafe_allow_html=True)
+                idx += 1
 
-    # ── QUIZ ──
+    # ── QUIZ ────────────────────────────────────────────────────────────────
     with tab2:
-        st.caption("Answer all questions then submit to see your exam readiness score.")
-        if st.button("Generate Quiz", type="primary", use_container_width=True, key="gen_qz"):
-            run_gen("Quiz", **G)
-            st.session_state.quiz_score = None
+        st.markdown(f'<p style="font-size:0.82rem;color:{TEXT3};margin-bottom:1rem">Answer all 5 questions then submit to see your exam readiness score.</p>', unsafe_allow_html=True)
 
-        if st.session_state.generated_heading == "Quiz" and st.session_state.generated_output:
-            raw   = st.session_state.generated_output
-            qs    = re.split(r'Question\s+\d+[:.]', raw, flags=re.IGNORECASE)
-            qs    = [q.strip() for q in qs if q.strip()]
-            u_ans, c_keys = [], []
+        if st.button("❓ Generate Quiz", type="primary", use_container_width=True, key="gen_quiz"):
+            result = generate("Quiz", content)
+            if result:
+                st.session_state.quiz_raw     = result
+                st.session_state.quiz_score   = None
+                st.session_state.quiz_answers = {}
+                st.rerun()
+
+        if st.session_state.quiz_raw:
+            qs     = re.split(r'Question\s+\d+[:.]', st.session_state.quiz_raw, flags=re.IGNORECASE)
+            qs     = [q.strip() for q in qs if q.strip()]
+            c_keys: list = []
 
             for qi, blk in enumerate(qs, 1):
-                lines  = [l.strip() for l in blk.split("\n") if l.strip()]
-                if not lines: continue
-                qtxt   = lines[0].lstrip(".*:) ")
-                opts   = [l for l in lines[1:] if re.match(r'^[A-Da-d][.)]\s+', l)]
-                cline  = [l for l in lines if re.search(r'correct\s*answer', l, re.IGNORECASE)]
-                if not opts or len(opts) < 2: continue
-
-                st.markdown(f"**Q{qi}.** {qtxt}")
+                lines = [l.strip() for l in blk.split("\n") if l.strip()]
+                if not lines:
+                    continue
+                qtxt  = lines[0].lstrip(".*:) ")
+                opts  = [l for l in lines[1:] if re.match(r'^[A-Da-d][.)]\s+', l)]
+                cline = [l for l in lines if re.search(r'correct\s*answer', l, re.IGNORECASE)]
+                if len(opts) < 2:
+                    continue
+                st.markdown(f'<div style="font-weight:600;color:{TEXT};margin-bottom:0.4rem">Q{qi}. {qtxt}</div>', unsafe_allow_html=True)
                 sel = st.radio("", opts, key=f"quiz_q_{qi}", index=None, label_visibility="collapsed")
-                u_ans.append(sel)
+                st.session_state.quiz_answers[qi] = sel
                 if cline:
                     m = re.search(r'[:]\s*([A-Da-d])', cline[0])
-                    if m: c_keys.append(m.group(1).upper())
-                st.markdown("---")
+                    if m:
+                        c_keys.append(m.group(1).upper())
+                st.markdown("<hr>", unsafe_allow_html=True)
 
-            if u_ans and c_keys:
-                if st.button("Submit & See Score", type="primary", use_container_width=True):
-                    if None in u_ans:
-                        st.warning("Answer all questions before submitting.")
+            if c_keys:
+                if st.button("🚀 Submit & See Score", type="primary", use_container_width=True, key="quiz_sub"):
+                    answers = [st.session_state.quiz_answers.get(i) for i in range(1, len(c_keys) + 1)]
+                    if None in answers:
+                        st.warning("⚠️ Answer all questions before submitting.")
                     else:
                         score = sum(
-                            1 for i, ua in enumerate(u_ans)
-                            if i < len(c_keys) and ua and ua.strip().upper().startswith(c_keys[i])
+                            1 for i, ua in enumerate(answers)
+                            if ua and ua.strip().upper().startswith(c_keys[i])
                         )
                         st.session_state.quiz_score = score
 
@@ -1363,142 +1096,178 @@ if st.session_state.notes_content:
                     sc  = st.session_state.quiz_score
                     tot = len(c_keys)
                     pct = int(sc / tot * 100) if tot else 0
-                    st.markdown("---")
+                    st.markdown("<hr>", unsafe_allow_html=True)
+                    st.markdown(f'<div style="text-align:center;margin-bottom:1.5rem">'
+                                f'<div class="lf-score-badge">{pct}%</div>'
+                                f'<div style="font-family:\'Syne\',sans-serif;font-size:1.1rem;font-weight:700;color:{TEXT};margin-top:0.5rem">Exam Readiness Score</div>'
+                                f'</div>', unsafe_allow_html=True)
                     m1, m2, m3 = st.columns(3)
-                    with m1: st.metric("Score",      f"{sc} / {tot}")
-                    with m2: st.metric("Percentage",  f"{pct}%")
-                    with m3: st.metric("Exam Ready",  f"{min(pct+10,100)}%")
+                    with m1: st.metric("Correct",    f"{sc} / {tot}")
+                    with m2: st.metric("Score",      f"{pct}%")
+                    with m3: st.metric("Exam Ready", f"{min(pct + 10, 100)}%")
                     st.progress(pct / 100)
-                    if pct >= 80:   st.success("Excellent! You are exam ready.")
-                    elif pct >= 60: st.info("Good effort — review the topics you missed.")
-                    elif pct >= 40: st.warning("Keep going — re-read your notes and retry.")
-                    else:            st.error("More study needed — go back to notes first.")
+                    if   pct >= 80: st.success("🎉 Excellent! You are fully exam ready.")
+                    elif pct >= 60: st.info("👍 Good effort — review the topics you got wrong.")
+                    elif pct >= 40: st.warning("📚 Keep going — re-read your notes and retry.")
+                    else:           st.error("🔴 More study needed — start with Notes and work through the tools.")
 
-    # ── FEYNMAN + REFLECT ──
+    # ── FEYNMAN & REFLECT ───────────────────────────────────────────────────
     with tab3:
-        rc1, rc2 = st.columns(2)
-        with rc1:
-            if st.button("Reflection Questions", use_container_width=True, key="gen_ref"):
-                run_gen("Reflection", **G)
-        with rc2:
-            if st.button("Generate Exam Paper", use_container_width=True, key="gen_exam"):
-                run_gen("Exam Mode", **G)
+        fc1, fc2 = st.columns(2)
+        with fc1:
+            if st.button("🤔 Reflection Questions", use_container_width=True, key="gen_ref"):
+                result = generate("Reflection", content)
+                if result:
+                    st.session_state.out_content = result
+                    st.session_state.out_label   = "Reflection"
+                    st.rerun()
+        with fc2:
+            if st.button("📝 Mock Exam Paper", use_container_width=True, key="gen_exam_t"):
+                result = generate("Exam Mode", content)
+                if result:
+                    st.session_state.out_content = result
+                    st.session_state.out_label   = "Exam Mode"
+                    st.rerun()
 
-        if st.session_state.generated_heading in ["Reflection","Exam Mode"] and st.session_state.generated_output:
-            with st.expander(f"{st.session_state.generated_heading}", expanded=True):
-                st.markdown(st.session_state.generated_output)
-                st.download_button("Download", data=st.session_state.generated_output,
-                    file_name=f"{st.session_state.generated_heading}.txt",
-                    mime="text/plain", key="dl_ref")
+        if st.session_state.out_label in ["Reflection", "Exam Mode"] and st.session_state.out_content:
+            with st.expander(st.session_state.out_label, expanded=True):
+                st.markdown(st.session_state.out_content)
+                st.download_button(
+                    "⬇ Download",
+                    data=st.session_state.out_content,
+                    file_name=f"{st.session_state.out_label.replace(' ','_')}.txt",
+                    mime="text/plain", key="dl_ref",
+                )
 
-        st.markdown("---")
-        st.markdown("#### 🧪 Feynman Technique Check")
-        st.caption("Write your explanation of the topic below. AI will score your understanding out of 10 and pinpoint gaps.")
-        fi = st.text_area("Explain the topic in your own words:", height=110,
-                          placeholder="In my own words, this topic is about...",
-                          key="feynman_input")
-        if st.button("Analyse My Understanding", type="primary", use_container_width=True):
-            if not fi.strip():
+        st.markdown(f'<div class="lf-divider">Feynman Technique</div>', unsafe_allow_html=True)
+        st.markdown(f'<p style="font-size:0.85rem;color:{TEXT2};margin-bottom:0.75rem">'
+                    f'Write your explanation of the topic below. AI will score your understanding out of 10, '
+                    f'identify gaps, and give you targeted improvement tips.</p>', unsafe_allow_html=True)
+
+        feynman_in = st.text_area(
+            "Explain in your own words:",
+            height=130,
+            placeholder="In my own words, this topic is about... The key idea is... It works by...",
+            key="feynman_ta",
+        )
+        if st.button("🔬 Analyse My Understanding", type="primary", use_container_width=True, key="btn_feynman"):
+            if not feynman_in.strip():
                 st.warning("Write your explanation first.")
             else:
-                fp, _ = build_prompt(
-                    f"Topic: {manual or 'uploaded content'}\n\nStudent explanation:\n{fi}",
-                    difficulty, persona, "Feynman"
+                p = build_prompt(
+                    f"Topic: {topic_input or 'the uploaded content'}\n\nStudent explanation:\n{feynman_in}",
+                    "Feynman",
                 )
-                with st.spinner("Analysing your explanation..."):
-                    fr = ai(fp, 0.3)
-                if fr in ("QUOTA","NO_KEYS"): quota_ui()
-                else: st.session_state.feynman_feedback = fr
+                with st.spinner("🔍 Analysing your explanation..."):
+                    fb = ai(p, 0.3)
+                st.session_state.feynman_fb = fb
 
-        if st.session_state.feynman_feedback:
-            st.markdown(st.session_state.feynman_feedback)
+        if st.session_state.feynman_fb:
+            st.markdown(f'<div class="feynman-card">{st.session_state.feynman_fb}</div>', unsafe_allow_html=True)
 
-    # ── AI TUTOR ──
+    # ── AI TUTOR ────────────────────────────────────────────────────────────
     with tab4:
-        st.caption("Your Socratic AI tutor asks deep questions to challenge and deepen your understanding.")
-        if st.button("Ask Me a Question", type="primary", use_container_width=True, key="tutor_ask"):
-            sp, _ = build_prompt(content, difficulty, "Analytical", "Socratic")
-            with st.spinner("Thinking of a good question..."): sr = ai(sp, 0.6)
-            if sr in ("QUOTA","NO_KEYS"): quota_ui()
-            else:
-                st.session_state.tutor_history.append({"role":"ai","msg":sr})
-                st.rerun()
+        st.markdown(f'<p style="font-size:0.82rem;color:{TEXT3};margin-bottom:1rem">'
+                    f'Your Socratic AI tutor asks probing questions to challenge and deepen your understanding.</p>',
+                    unsafe_allow_html=True)
+
+        if st.button("🤖 Ask Me a Question", type="primary", use_container_width=True, key="tutor_ask"):
+            with st.spinner("🧠 Thinking of a challenging question..."):
+                q = ai(build_prompt(content, "Socratic"), 0.7)
+            st.session_state.tutor_history.append({"role": "ai", "msg": q})
+            st.rerun()
 
         for msg in st.session_state.tutor_history:
             if msg["role"] == "ai":
-                st.markdown(f'<div class="lf-bubble-ai">🤖 {msg["msg"]}</div>',
-                            unsafe_allow_html=True)
+                st.markdown(f'<div class="lf-bubble-ai">{msg["msg"]}</div>', unsafe_allow_html=True)
             else:
-                st.markdown(f'<div class="lf-bubble-user">{msg["msg"]} 👤</div>',
-                            unsafe_allow_html=True)
+                st.markdown(f'<div class="lf-bubble-user">{msg["msg"]} 👤</div>', unsafe_allow_html=True)
 
         if st.session_state.tutor_history:
-            reply = st.text_input("Your answer:", key="tutor_reply_input",
-                                  placeholder="Type your answer here...")
-            tc1, tc2 = st.columns([4,1])
-            with tc1:
-                if st.button("Send", use_container_width=True, key="tutor_send"):
+            reply = st.text_input(
+                "Your answer:",
+                key="tutor_input",
+                placeholder="Think carefully, then type your answer...",
+            )
+            ta1, ta2 = st.columns([5, 1])
+            with ta1:
+                if st.button("📤 Send Answer", use_container_width=True, key="tutor_send"):
                     if reply.strip():
-                        st.session_state.tutor_history.append({"role":"user","msg":reply})
-                        fup = (f"The topic is: {manual or 'the uploaded content'}.\n"
-                               f"Student just answered: {reply}\n"
-                               f"Ask ONE short, deeper Socratic follow-up question.")
-                        with st.spinner("..."):
-                            fur = ai(fup, 0.6)
-                        if fur not in ("QUOTA","NO_KEYS"):
-                            st.session_state.tutor_history.append({"role":"ai","msg":fur})
+                        st.session_state.tutor_history.append({"role": "user", "msg": reply})
+                        follow_up = (
+                            f"Topic: {topic_input or 'uploaded content'}.\n"
+                            f"The student just answered: {reply}\n"
+                            f"Ask ONE short, deeper Socratic follow-up question that builds on their answer. "
+                            f"Push their thinking further. One sentence only."
+                        )
+                        with st.spinner("💭 Thinking..."):
+                            fq = ai(follow_up, 0.7)
+                        st.session_state.tutor_history.append({"role": "ai", "msg": fq})
                         st.rerun()
-            with tc2:
-                if st.button("Clear", use_container_width=True, key="tutor_clear"):
+            with ta2:
+                if st.button("🗑 Clear", use_container_width=True, key="tutor_clr"):
                     st.session_state.tutor_history = []
                     st.rerun()
 
-    # ── EXAM MODE ──
-    st.markdown("""
-<div class="lf-section">
+    # ── EXAM MODE ───────────────────────────────────────────────────────────
+    st.markdown("""<div class="lf-section">
   <div class="lf-section-num">4</div>
   <div>
     <div class="lf-section-title">Full Exam Mode</div>
-    <div class="lf-section-sub">Generate a complete exam paper with MCQs, fill-in-the-blanks, and short answers</div>
+    <div class="lf-section-sub">Generate a complete professional exam paper — MCQ, fill-in-the-blanks, short answers and essay</div>
   </div>
 </div>""", unsafe_allow_html=True)
 
-    if st.button("Generate Full Exam Paper", type="primary", use_container_width=True, key="gen_full_exam"):
-        if run_gen("Exam Mode", **G):
-            st.success("Exam paper ready! Scroll down to view it.")
+    if st.button("🎓 Generate Full Exam Paper", type="primary", use_container_width=True, key="btn_exam_full"):
+        result = generate("Exam Mode", content)
+        if result:
+            st.session_state.out_content = result
+            st.session_state.out_label   = "Exam Mode"
+            st.rerun()
 
-    if st.session_state.generated_heading == "Exam Mode" and st.session_state.generated_output:
-        st.markdown(st.session_state.generated_output)
-        st.download_button("Download Exam Paper",
-            data=st.session_state.generated_output,
-            file_name=f"exam_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
-            mime="text/plain", key="dl_exam")
+    if st.session_state.out_label == "Exam Mode" and st.session_state.out_content:
+        st.markdown(f'<div class="lf-output">', unsafe_allow_html=True)
+        st.markdown(st.session_state.out_content)
+        st.markdown('</div>', unsafe_allow_html=True)
+        st.download_button(
+            "⬇ Download Exam Paper (.txt)",
+            data=st.session_state.out_content,
+            file_name=f"exam_{datetime.datetime.now().strftime('%Y%m%d_%H%M')}.txt",
+            mime="text/plain",
+            key="dl_exam_full",
+        )
 
 else:
-    st.markdown(f"""
-<div class="lf-empty">
-  <div class="lf-empty-icon">📖</div>
-  <div class="lf-empty-title">Generate your notes to unlock testing features</div>
-  <div class="lf-empty-sub">Enter a topic above and click <strong>Notes</strong> to get started</div>
+    # ── EMPTY STATE ──────────────────────────────────────────────────────────
+    st.markdown(f"""<div class="lf-empty">
+  <span class="lf-empty-icon">📖</span>
+  <div class="lf-empty-title">Generate Notes first to unlock all testing features</div>
+  <div class="lf-empty-sub">
+    Enter a topic above and click <strong>📝 Notes</strong> to get started.<br>
+    Flashcards, Quiz, Feynman Check, AI Tutor and Exam Mode will all unlock automatically.
+  </div>
 </div>""", unsafe_allow_html=True)
 
-# ═══════════════════════════════════════════════════════════
-# HISTORY
-# ═══════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════════
+# SESSION HISTORY
+# ═══════════════════════════════════════════════════════════════════════════
 if st.session_state.history:
-    st.markdown("""
-<div class="lf-section">
-  <div class="lf-section-num" style="background:linear-gradient(135deg,#0f766e,#0891b2);">📜</div>
+    st.markdown("""<div class="lf-section">
+  <div class="lf-section-num" style="background:linear-gradient(135deg,#0f766e,#0891b2)">📜</div>
   <div>
     <div class="lf-section-title">Session History</div>
-    <div class="lf-section-sub">All content generated in this session</div>
+    <div class="lf-section-sub">Everything generated this session — download any output</div>
   </div>
 </div>""", unsafe_allow_html=True)
 
     for i, item in enumerate(reversed(st.session_state.history)):
-        label = f"{item['format']}  —  {item['topic']}  ·  {item['ts']}"
+        label = f"{item['format']}  ·  {item['topic'][:40]}  ·  {item['ts']}"
         with st.expander(label):
-            st.markdown(item.get("output",""))
-            st.download_button("Download", data=item.get("output",""),
-                file_name=f"{item['format']}_{i}.txt",
-                mime="text/plain", key=f"hist_dl_{i}")
+            st.markdown(item.get("output", ""))
+            st.download_button(
+                f"⬇ Download",
+                data=item.get("output", ""),
+                file_name=f"{item['format'].replace(' ','_')}_{i}.txt",
+                mime="text/plain",
+                key=f"hist_{i}",
+            )
